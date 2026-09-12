@@ -1,0 +1,12 @@
+fastapi
+httpx
+itsdangerous
+jinja2
+openai
+passlib[bcrypt]
+pydantic-settings
+pytest
+python-dotenv
+python-multipart
+sqlalchemy
+uvicorn[standard]
