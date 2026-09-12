@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    env:
+      AI_API_KEY: ci-dummy
+      AI_BASE_URL: https://example.invalid/v1
+      AI_MODEL: ci-dummy
+      AI_MOCK: "true"
+      AI_TIMEOUT: "5"
+      SESSION_SECRET_KEY: ci-dummy-secret
+      DATABASE_URL: "sqlite:///./ci.db"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install ruff
+
+      - name: 문법 오류 검사
+        run: python -m compileall -q .
+
+      - name: 린트
+        run: ruff check . --output-format=github
+
+      - name: 앱 부팅 확인
+        run: |
+          if [ -f app/main.py ]; then
+            python -c "from app.main import app; print('app import OK')"
+          else
+            echo "app/main.py 아직 없음 — 건너뜀"
+          fi
+
+      - name: 테스트
+        run: |
+          if [ -d tests ]; then pytest -q; else echo "tests/ 없음 — 건너뜀"; fi
