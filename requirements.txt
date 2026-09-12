@@ -1,9 +1,9 @@
+bcrypt
 fastapi
 httpx
 itsdangerous
 jinja2
 openai
-passlib[bcrypt]
 pydantic-settings
 pytest
 python-dotenv
