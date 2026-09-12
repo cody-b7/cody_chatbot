@@ -35,7 +35,7 @@ engine = create_engine(
 if _is_sqlite:
 
     @event.listens_for(engine, "connect")
-    def _sqlite_pragma(dbapi_conn, _record):  # noqa: ANN001
+    def _sqlite_pragma(dbapi_conn, _record):
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
         cur.execute("PRAGMA foreign_keys=ON")

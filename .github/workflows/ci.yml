@@ -29,7 +29,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install ruff
+          pip install ruff==0.16.7
 
       - name: 문법 오류 검사
         run: python -m compileall -q .

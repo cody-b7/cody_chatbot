@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from app import models  # noqa: F401  (create_all 이 테이블을 인식하려면 필요)
 from app.config import settings
 from app.db import Base, engine
 from app.logging_config import setup_logging
@@ -19,9 +20,6 @@ from app.routers import auth, chat, logs, pages
 
 setup_logging()
 logger = logging.getLogger(__name__)
-
-# 모델을 import 해야 create_all 이 테이블을 인식한다
-import app.models  # noqa: E402,F401
 
 Base.metadata.create_all(bind=engine)
 
