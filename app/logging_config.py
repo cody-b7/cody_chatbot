@@ -9,19 +9,40 @@ TODO(A): 배포 시 파일 핸들러(RotatingFileHandler)를 추가할 것.
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from app.config import settings
 
 _FORMAT = "%(levelname)-5s %(asctime)s %(name)s %(message)s"
 
+LOG_DIR = Path("logs")
+LOG_FILE = LOG_DIR / "app.log"
+
 
 def setup_logging() -> None:
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(_FORMAT, datefmt="%Y-%m-%dT%H:%M:%S"))
+    LOG_DIR.mkdir(exist_ok=True)
+
+    formatter = logging.Formatter(
+        _FORMAT,
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+
+    file_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
 
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(handler)
+    root.addHandler(stream_handler)
+    root.addHandler(file_handler)
     root.setLevel(settings.LOG_LEVEL.upper())
 
     # 요청 로그는 우리가 미들웨어에서 직접 남긴다
