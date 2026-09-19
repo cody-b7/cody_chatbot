@@ -224,5 +224,6 @@ __marimo__/
 *.db
 *.sqlite3
 data/
+logs/
 .venv/
 venv/
