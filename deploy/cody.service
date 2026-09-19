@@ -1,0 +1,13 @@
+[Unit]
+Description=Cody Chatbot
+After=network.target
+
+[Service]
+User=azureuser
+WorkingDirectory=/home/azureuser/cody_chatbot
+ExecStart=/home/azureuser/cody_chatbot/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
