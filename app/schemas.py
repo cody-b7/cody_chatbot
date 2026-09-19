@@ -61,6 +61,27 @@ class ChatLogItem(BaseModel):
     created_at: datetime
 
 
+class SessionSummary(BaseModel):
+    """세션 목록 한 줄. 기록 화면에서 "언제 무슨 상황을 연습했나"를 보여준다."""
+
+    id: int
+    scenario: str
+    created_at: datetime
+    turn_count: int
+    correction_count: int
+    last_message_at: datetime | None
+
+
+class LearningStats(BaseModel):
+    """학습 요약. 교정이 몇 번 붙었는지가 핵심 지표다."""
+
+    total_sessions: int
+    total_turns: int
+    total_corrections: int
+    error_count: int
+    avg_latency_ms: int | None
+
+
 class ErrorResponse(BaseModel):
     error: str    # AI_TIMEOUT / AI_ERROR / INVALID_INPUT
     message: str  # 사용자에게 그대로 보여줄 안내 문구

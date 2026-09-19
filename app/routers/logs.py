@@ -1,12 +1,17 @@
-"""대화 로그 조회. 사용자는 자기 로그만 볼 수 있다."""
+"""대화 로그 조회. 사용자는 자기 로그만 볼 수 있다.
+
+요건 4("사용자 기준 로그 조회/추적")를 담당하는 라우터다.
+모든 쿼리에 user_id 필터가 들어가며, 남의 기록은 어떤 경로로도 나오지 않는다.
+"""
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session as DbSession
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import ChatLog, User
-from app.schemas import ChatLogItem
+from app.models import ChatLog, RoleplaySession, User
+from app.schemas import ChatLogItem, LearningStats, SessionSummary
 
 router = APIRouter(prefix="/api/me", tags=["logs"])
 
@@ -14,19 +19,22 @@ router = APIRouter(prefix="/api/me", tags=["logs"])
 @router.get("/chats", response_model=list[ChatLogItem])
 def my_chats(
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     session_id: int | None = None,
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """내 대화 기록. session_id 를 주면 그 세션만."""
     q = db.query(ChatLog).filter(ChatLog.user_id == user.id)
     if session_id is not None:
         q = q.filter(ChatLog.session_id == session_id)
-    return q.order_by(ChatLog.id.desc()).limit(limit).all()
+    return q.order_by(ChatLog.id.desc()).offset(offset).limit(limit).all()
 
 
 @router.get("/corrections", response_model=list[ChatLogItem])
 def my_corrections(
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -35,6 +43,80 @@ def my_corrections(
         db.query(ChatLog)
         .filter(ChatLog.user_id == user.id, ChatLog.correction.isnot(None))
         .order_by(ChatLog.id.desc())
+        .offset(offset)
         .limit(limit)
         .all()
+    )
+
+
+@router.get("/sessions", response_model=list[SessionSummary])
+def my_sessions(
+    limit: int = Query(default=30, ge=1, le=100),
+    db: DbSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """내 롤플레이 세션 목록.
+
+    한 번의 쿼리로 세션별 턴 수·교정 수·마지막 대화 시각까지 집계한다.
+    세션마다 따로 조회하면 목록이 길어질수록 쿼리가 선형으로 늘어난다.
+    """
+    rows = (
+        db.query(
+            RoleplaySession.id,
+            RoleplaySession.scenario,
+            RoleplaySession.created_at,
+            func.count(ChatLog.id).label("turn_count"),
+            func.count(ChatLog.correction).label("correction_count"),
+            func.max(ChatLog.created_at).label("last_message_at"),
+        )
+        .outerjoin(ChatLog, ChatLog.session_id == RoleplaySession.id)
+        .filter(RoleplaySession.user_id == user.id)
+        .group_by(RoleplaySession.id)
+        .order_by(RoleplaySession.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        SessionSummary(
+            id=r.id,
+            scenario=r.scenario,
+            created_at=r.created_at,
+            turn_count=r.turn_count,
+            correction_count=r.correction_count,
+            last_message_at=r.last_message_at,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/stats", response_model=LearningStats)
+def my_stats(
+    db: DbSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """학습 요약 통계."""
+    total_sessions = (
+        db.query(func.count(RoleplaySession.id))
+        .filter(RoleplaySession.user_id == user.id)
+        .scalar()
+        or 0
+    )
+
+    turns, corrections, errors, avg_latency = (
+        db.query(
+            func.count(ChatLog.id),
+            func.count(ChatLog.correction),
+            func.count(ChatLog.error_code),
+            func.avg(ChatLog.latency_ms),
+        )
+        .filter(ChatLog.user_id == user.id)
+        .one()
+    )
+
+    return LearningStats(
+        total_sessions=total_sessions,
+        total_turns=turns or 0,
+        total_corrections=corrections or 0,
+        error_count=errors or 0,
+        avg_latency_ms=round(avg_latency) if avg_latency is not None else None,
     )
