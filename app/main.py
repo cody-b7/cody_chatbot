@@ -8,8 +8,10 @@ import logging
 import time
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import models  # noqa: F401  (create_all 이 테이블을 인식하려면 필요)
@@ -47,6 +49,20 @@ async def log_requests(request: Request, call_next):
         int((time.perf_counter() - started) * 1000),
     )
     return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def auth_redirect(request: Request, exc: StarletteHTTPException):
+    """브라우저로 들어온 401 은 로그인 화면으로 보낸다.
+
+    화면 요청에 JSON 오류를 돌려주면 사용자에게 보여줄 것이 없다.
+    fetch 나 API 클라이언트는 Accept 에 text/html 을 넣지 않으므로
+    기존대로 401 JSON 을 받는다.
+    """
+    wants_html = "text/html" in request.headers.get("accept", "")
+    if exc.status_code == 401 and wants_html:
+        return RedirectResponse("/login", status_code=303)
+    return await http_exception_handler(request, exc)
 
 
 @app.exception_handler(Exception)
