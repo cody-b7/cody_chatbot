@@ -67,16 +67,22 @@ def _parse(raw: str) -> tuple[str, str | None]:
 
     try:
         data = json.loads(text)
-        reply = str(data.get("reply", "")).strip()
-        if reply:
-            raw_correction = data.get("correction")
-            correction = str(raw_correction).strip() if raw_correction else ""
-            return reply, correction or None
-    except (json.JSONDecodeError, AttributeError, TypeError):
-        pass
+    except (json.JSONDecodeError, TypeError):
+        # 형식을 어겼을 뿐이므로 응답 전체를 대사로 쓴다. 대화는 이어진다.
+        logger.warning("ai_response_not_json chars=%d", len(raw))
+        return text, None
 
-    logger.warning("ai_response_not_json chars=%d", len(raw))
-    return raw.strip(), None
+    if not isinstance(data, dict):
+        logger.warning("ai_response_not_object chars=%d", len(raw))
+        return text, None
+
+    # JSON 은 맞는데 reply 가 비어 있으면 빈 문자열을 돌려준다.
+    # 예전에는 이 경우가 "JSON 이 아님" 으로 떨어져서 JSON 원문이
+    # 그대로 챗봇 대사로 화면에 나갔다.
+    reply = str(data.get("reply", "")).strip()
+    raw_correction = data.get("correction")
+    correction = str(raw_correction).strip() if raw_correction else ""
+    return reply, correction or None
 
 
 def _call(model: str, messages: list[dict[str, str]], request_id: str) -> str:
@@ -155,4 +161,11 @@ def generate(messages: list[dict[str, str]]) -> tuple[str, str | None, int]:
         logger.warning("ai_call_failed request_id=%s code=AI_ERROR reason=empty", request_id)
         raise AIError("AI_ERROR", "빈 응답을 받았어요. 다시 시도해 주세요.")
 
-    return (*_parse(raw), latency_ms)
+    reply, correction = _parse(raw)
+    if not reply:
+        logger.warning(
+            "ai_call_failed request_id=%s code=AI_ERROR reason=empty_reply", request_id
+        )
+        raise AIError("AI_ERROR", "빈 응답을 받았어요. 다시 시도해 주세요.")
+
+    return reply, correction, latency_ms
