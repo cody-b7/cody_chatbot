@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     SESSION_SECRET_KEY: str
     DATABASE_URL: str = "sqlite:///./data/chatbot.db"
     LOG_LEVEL: str = "INFO"
+    ADMIN_USERNAME: str = "admin"
 
     # --- 입력 검증 ---
     MAX_MESSAGE_LENGTH: int = 1000
