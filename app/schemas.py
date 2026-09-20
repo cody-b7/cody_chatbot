@@ -61,6 +61,20 @@ class ChatLogItem(BaseModel):
     created_at: datetime
 
 
+class CorrectionItem(BaseModel):
+    """교정 한 건. 어떤 상황에서 무슨 말을 하다 지적받았는지를 함께 보여준다.
+
+    교정 문구만 나열하면 "왜 틀렸는지"의 맥락이 빠져서 복습이 안 된다.
+    """
+
+    id: int
+    session_id: int
+    scenario: str
+    question: str
+    correction: str
+    created_at: datetime
+
+
 class SessionSummary(BaseModel):
     """세션 목록 한 줄. 기록 화면에서 "언제 무슨 상황을 연습했나"를 보여준다."""
 

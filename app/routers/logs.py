@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session as DbSession
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import ChatLog, RoleplaySession, User
-from app.schemas import ChatLogItem, LearningStats, SessionSummary
+from app.schemas import (
+    ChatLogItem,
+    CorrectionItem,
+    LearningStats,
+    SessionSummary,
+)
 
 router = APIRouter(prefix="/api/me", tags=["logs"])
 
@@ -31,22 +36,56 @@ def my_chats(
     return q.order_by(ChatLog.id.desc()).offset(offset).limit(limit).all()
 
 
-@router.get("/corrections", response_model=list[ChatLogItem])
+@router.get("/corrections", response_model=list[CorrectionItem])
 def my_corrections(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    scenario: str | None = None,
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """교정이 달린 턴만. '내가 자주 틀리는 표현' 화면의 데이터."""
-    return (
-        db.query(ChatLog)
+    """교정이 달린 턴만. '내가 자주 틀리는 표현' 화면의 데이터.
+
+    세션을 조인해 상황(scenario)까지 함께 내려준다. 교정 문구만 나열하면
+    어떤 맥락에서 틀린 말인지 알 수 없어 복습이 되지 않는다.
+    """
+    q = (
+        db.query(ChatLog, RoleplaySession.scenario)
+        .join(RoleplaySession, RoleplaySession.id == ChatLog.session_id)
         .filter(ChatLog.user_id == user.id, ChatLog.correction.isnot(None))
-        .order_by(ChatLog.id.desc())
-        .offset(offset)
-        .limit(limit)
+    )
+    if scenario is not None:
+        q = q.filter(RoleplaySession.scenario == scenario)
+
+    rows = q.order_by(ChatLog.id.desc()).offset(offset).limit(limit).all()
+    return [
+        CorrectionItem(
+            id=log.id,
+            session_id=log.session_id,
+            scenario=scn,
+            question=log.question,
+            correction=log.correction,
+            created_at=log.created_at,
+        )
+        for log, scn in rows
+    ]
+
+
+@router.get("/corrections/by-scenario")
+def corrections_by_scenario(
+    db: DbSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, int]:
+    """상황별 교정 횟수. 어떤 상황에서 자주 막히는지 보여준다."""
+    rows = (
+        db.query(RoleplaySession.scenario, func.count(ChatLog.id))
+        .join(ChatLog, ChatLog.session_id == RoleplaySession.id)
+        .filter(ChatLog.user_id == user.id, ChatLog.correction.isnot(None))
+        .group_by(RoleplaySession.scenario)
+        .order_by(func.count(ChatLog.id).desc())
         .all()
     )
+    return {scenario: count for scenario, count in rows}
 
 
 @router.get("/sessions", response_model=list[SessionSummary])

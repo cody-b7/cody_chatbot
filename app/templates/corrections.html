@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}자주 틀리는 표현{% endblock %}
+{% block content %}
+
+<style>
+  .bars { margin: 1rem 0 1.5rem; }
+  .bar { display: flex; align-items: center; gap: .6rem; margin-bottom: .35rem; font-size: .85rem; }
+  .bar .name { width: 5.5rem; }
+  .bar .fill { height: .8rem; background: #8f5406; }
+  .bar .n { color: #666; }
+  .filters { margin-bottom: 1rem; font-size: .85rem; }
+  .filters button { margin-right: .3rem; padding: .25rem .6rem; cursor: pointer; }
+  .filters button[aria-pressed="true"] { background: #8f5406; color: #fff; border-color: #8f5406; }
+  .item { border-bottom: 1px solid #eee; padding: .8rem 0; }
+  .item .meta { font-size: .75rem; color: #888; margin-bottom: .3rem; }
+  .item .said { margin: 0 0 .35rem; }
+  .item .said b { color: #666; font-weight: normal; font-size: .8rem; margin-right: .4rem; }
+  .item .fix { color: #8f5406; font-size: .9rem; margin: 0; }
+  .empty { color: #888; padding: 1.5rem 0; }
+</style>
+
+<h1>자주 틀리는 표현</h1>
+<p>{{ username }}님이 지금까지 받은 교정입니다. 복습하면 같은 실수를 줄일 수 있어요.</p>
+
+<div class="bars" id="bars"></div>
+<div class="filters" id="filters"></div>
+<div id="list"></div>
+
+<p><a href="/history">← 연습 기록</a> &nbsp;·&nbsp; <a href="/">연습하러 가기</a></p>
+
+<script>
+const fmt = (s) => new Date(s).toLocaleString('ko-KR');
+const esc = (t) => { const d = document.createElement('div'); d.textContent = t ?? ''; return d.innerHTML; };
+
+let current = null;
+
+async function load(scenario) {
+  current = scenario;
+
+  const byScenario = await fetch('/api/me/corrections/by-scenario').then(r => r.json());
+  const entries = Object.entries(byScenario);
+  const max = Math.max(1, ...entries.map(([, n]) => n));
+
+  document.getElementById('bars').innerHTML = entries.map(([name, n]) => `
+    <div class="bar">
+      <span class="name">${esc(name)}</span>
+      <span class="fill" style="width:${(n / max * 55).toFixed(1)}%"></span>
+      <span class="n">${n}회</span>
+    </div>`).join('');
+
+  document.getElementById('filters').innerHTML =
+    [['전체', null], ...entries.map(([name]) => [name, name])]
+      .map(([label, value]) =>
+        `<button data-scenario="${value ?? ''}" aria-pressed="${value === current}">${esc(label)}</button>`
+      ).join('');
+
+  document.querySelectorAll('.filters button').forEach(b => {
+    b.addEventListener('click', () => load(b.dataset.scenario || null));
+  });
+
+  const url = '/api/me/corrections?limit=100' + (scenario ? '&scenario=' + encodeURIComponent(scenario) : '');
+  const items = await fetch(url).then(r => r.json());
+
+  document.getElementById('list').innerHTML = items.length
+    ? items.map(c => `
+        <div class="item">
+          <div class="meta">${esc(c.scenario)} · ${fmt(c.created_at)}</div>
+          <p class="said"><b>내가 한 말</b>${esc(c.question)}</p>
+          <p class="fix">${esc(c.correction)}</p>
+        </div>`).join('')
+    : '<p class="empty">아직 받은 교정이 없어요. 연습을 시작해 보세요.</p>';
+}
+
+load(null);
+</script>
+{% endblock %}
