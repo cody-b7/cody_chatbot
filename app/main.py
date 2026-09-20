@@ -8,15 +8,17 @@ import logging
 import time
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import models  # noqa: F401  (create_all 이 테이블을 인식하려면 필요)
 from app.config import settings
 from app.db import Base, engine
 from app.logging_config import setup_logging
-from app.routers import auth, chat, logs, pages
+from app.routers import auth, chat, history, logs, pages
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -49,6 +51,20 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+@app.exception_handler(StarletteHTTPException)
+async def auth_redirect(request: Request, exc: StarletteHTTPException):
+    """브라우저로 들어온 401 은 로그인 화면으로 보낸다.
+
+    화면 요청에 JSON 오류를 돌려주면 사용자에게 보여줄 것이 없다.
+    fetch 나 API 클라이언트는 Accept 에 text/html 을 넣지 않으므로
+    기존대로 401 JSON 을 받는다.
+    """
+    wants_html = "text/html" in request.headers.get("accept", "")
+    if exc.status_code == 401 and wants_html:
+        return RedirectResponse("/login", status_code=303)
+    return await http_exception_handler(request, exc)
+
+
 @app.exception_handler(Exception)
 async def unhandled_error(request: Request, exc: Exception):
     """어떤 예외도 서비스를 죽이지 않고 안내 응답으로 바꾼다."""
@@ -68,3 +84,4 @@ app.include_router(pages.router)   # B
 app.include_router(auth.router)    # B
 app.include_router(chat.router)    # C
 app.include_router(logs.router)    # C
+app.include_router(history.router) # C

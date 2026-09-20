@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}내 연습 기록{% endblock %}
+{% block content %}
+
+<style>
+  .stats { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0 1.5rem; }
+  .stat { border: 1px solid #ddd; padding: .6rem .9rem; min-width: 7rem; }
+  .stat b { display: block; font-size: 1.3rem; }
+  .stat span { font-size: .8rem; color: #666; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #eee; }
+  th { font-size: .75rem; color: #666; text-transform: uppercase; }
+  tr.session { cursor: pointer; }
+  tr.session:hover { background: #f6f6f6; }
+  .turns { background: #fafafa; }
+  .turns dl { margin: 0; padding: .4rem 0; }
+  .turns dt { font-weight: 600; }
+  .turns dd { margin: 0 0 .5rem; }
+  .fix { color: #8f5406; font-size: .85rem; }
+  .empty { color: #888; padding: 1rem 0; }
+</style>
+
+<h1>내 연습 기록</h1>
+<p>{{ username }}님의 연습 내역입니다. 세션을 클릭하면 대화가 펼쳐집니다.</p>
+
+<div class="stats" id="stats"></div>
+
+<table>
+  <thead>
+    <tr><th>상황</th><th>시작</th><th>턴</th><th>교정</th><th>마지막 대화</th></tr>
+  </thead>
+  <tbody id="sessions"></tbody>
+</table>
+
+<p><a href="/">← 연습하러 가기</a></p>
+
+<script>
+const fmt = (s) => s ? new Date(s).toLocaleString('ko-KR') : '-';
+
+async function load() {
+  const [stats, sessions] = await Promise.all([
+    fetch('/api/me/stats').then(r => r.json()),
+    fetch('/api/me/sessions').then(r => r.json()),
+  ]);
+
+  document.getElementById('stats').innerHTML = [
+    ['연습 세션', stats.total_sessions],
+    ['주고받은 말', stats.total_turns],
+    ['받은 교정', stats.total_corrections],
+    ['평균 응답', stats.avg_latency_ms ? (stats.avg_latency_ms / 1000).toFixed(1) + '초' : '-'],
+  ].map(([label, value]) =>
+    `<div class="stat"><b>${value}</b><span>${label}</span></div>`
+  ).join('');
+
+  const tbody = document.getElementById('sessions');
+  if (!sessions.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">아직 연습 기록이 없어요.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = sessions.map(s => `
+    <tr class="session" data-id="${s.id}">
+      <td>${s.scenario}</td>
+      <td>${fmt(s.created_at)}</td>
+      <td>${s.turn_count}</td>
+      <td>${s.correction_count}</td>
+      <td>${fmt(s.last_message_at)}</td>
+    </tr>
+    <tr class="turns" id="turns-${s.id}" hidden><td colspan="5">불러오는 중…</td></tr>
+  `).join('');
+
+  tbody.querySelectorAll('tr.session').forEach(row => {
+    row.addEventListener('click', () => toggle(row.dataset.id));
+  });
+}
+
+const loaded = new Set();
+
+async function toggle(id) {
+  const row = document.getElementById('turns-' + id);
+  row.hidden = !row.hidden;
+  if (row.hidden || loaded.has(id)) return;
+
+  const chats = await fetch('/api/me/chats?session_id=' + id + '&limit=200').then(r => r.json());
+  loaded.add(id);
+
+  const cell = row.firstElementChild;
+  if (!chats.length) { cell.textContent = '이 세션에는 대화가 없습니다.'; return; }
+
+  cell.innerHTML = chats.reverse().map(c => `
+    <dl>
+      <dt>나</dt><dd>${esc(c.question)}</dd>
+      <dt>상대</dt><dd>${esc(c.answer)}</dd>
+      ${c.correction ? `<dd class="fix">${esc(c.correction)}</dd>` : ''}
+    </dl>
+  `).join('');
+}
+
+function esc(t) {
+  const d = document.createElement('div');
+  d.textContent = t ?? '';
+  return d.innerHTML;
+}
+
+load();
+</script>
+{% endblock %}

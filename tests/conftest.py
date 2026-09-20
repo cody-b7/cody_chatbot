@@ -18,8 +18,14 @@ from app.models import User
 
 
 @pytest.fixture(autouse=True)
-def force_mock(monkeypatch):
+def fixed_settings(monkeypatch):
+    """테스트는 항상 CI 와 같은 조건에서 돈다.
+
+    개발용 .env 의 DEV_AUTH_BYPASS=true 가 새어 들어오면 인증이 항상
+    통과해버려서, 로컬에서만 초록불인 테스트가 만들어진다.
+    """
     monkeypatch.setattr(settings, "AI_MOCK", True)
+    monkeypatch.setattr(settings, "DEV_AUTH_BYPASS", False)
 
 
 @pytest.fixture
