@@ -18,6 +18,7 @@ def get_current_user(
 ) -> User:
     """로그인한 사용자를 반환한다. 비로그인이면 401."""
     user_id = request.session.get("user_id")
+
     if user_id is not None:
         user = db.get(User, user_id)
         if user is not None:
@@ -35,3 +36,16 @@ def get_current_user(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="로그인이 필요합니다.",
     )
+
+
+def get_admin_user(
+    user: User = Depends(get_current_user),
+) -> User:
+    """관리자 사용자를 반환한다. 관리자가 아니면 403."""
+    if user.username != settings.ADMIN_USERNAME:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 권한이 필요합니다.",
+        )
+
+    return user

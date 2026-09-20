@@ -18,7 +18,7 @@ from app import models  # noqa: F401  (create_all 이 테이블을 인식하려�
 from app.config import settings
 from app.db import Base, engine
 from app.logging_config import setup_logging
-from app.routers import auth, chat, history, logs, pages
+from app.routers import admin_logs, auth, chat, history, logs, pages
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -85,3 +85,4 @@ app.include_router(auth.router)    # B
 app.include_router(chat.router)    # C
 app.include_router(logs.router)    # C
 app.include_router(history.router) # C
+app.include_router(admin_logs.router) # A
