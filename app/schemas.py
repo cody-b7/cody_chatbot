@@ -1,5 +1,6 @@
 """요청/응답 계약. 이 파일이 곧 API 명세의 원본이다."""
 
+import unicodedata
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -8,17 +9,31 @@ from app.config import settings
 from app.scenarios import KEYS as SCENARIOS  # 정의는 app/scenarios.py 한 곳에만
 
 
+def _strip_control_chars(text: str) -> str:
+    """제어 문자를 걷어낸다. 줄바꿈과 탭은 남긴다.
+
+    널 바이트 같은 제어 문자가 섞이면 로그가 깨져서 추적이 어려워지고,
+    DB 에 들어간 뒤 조회 도구마다 다르게 보인다. 입구에서 정리한다.
+    """
+    keep = {chr(10), chr(9)}  # 줄바꿈, 탭
+    return "".join(
+        ch for ch in text if ch in keep or unicodedata.category(ch) != "Cc"
+    )
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., description="사용자의 영어 발화")
     scenario: str = Field(default="cafe", description=f"{SCENARIOS}")
     session_id: int | None = Field(
-        default=None, description="이어서 대화할 세션. 없으면 새 세션을 연다."
+        default=None,
+        gt=0,
+        description="이어서 대화할 세션. 없으면 새 세션을 연다.",
     )
 
     @field_validator("message")
     @classmethod
-    def _message_not_blank(cls, v: str) -> str:
-        v = v.strip()
+    def _clean_message(cls, v: str) -> str:
+        v = _strip_control_chars(v).strip()
         if not v:
             raise ValueError("메시지를 입력해 주세요.")
         if len(v) > settings.MAX_MESSAGE_LENGTH:
