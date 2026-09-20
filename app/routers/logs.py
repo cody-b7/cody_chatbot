@@ -4,7 +4,7 @@
 모든 쿼리에 user_id 필터가 들어가며, 남의 기록은 어떤 경로로도 나오지 않는다.
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DbSession
 
@@ -15,6 +15,7 @@ from app.schemas import (
     ChatLogItem,
     CorrectionItem,
     LearningStats,
+    SessionDetail,
     SessionSummary,
 )
 
@@ -158,4 +159,33 @@ def my_stats(
         total_corrections=corrections or 0,
         error_count=errors or 0,
         avg_latency_ms=round(avg_latency) if avg_latency is not None else None,
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=SessionDetail)
+def session_detail(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """세션 하나와 그 안의 대화 전체.
+
+    이어하기 화면이 과거 맥락을 복원할 때 쓴다.
+    남의 세션은 존재 자체를 알려주지 않기 위해 404 로 돌려준다.
+    """
+    session = db.get(RoleplaySession, session_id)
+    if session is None or session.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "세션을 찾을 수 없습니다.")
+
+    turns = (
+        db.query(ChatLog)
+        .filter(ChatLog.session_id == session.id, ChatLog.error_code.is_(None))
+        .order_by(ChatLog.id)
+        .all()
+    )
+    return SessionDetail(
+        id=session.id,
+        scenario=session.scenario,
+        created_at=session.created_at,
+        turns=turns,
     )

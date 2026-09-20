@@ -78,11 +78,19 @@ def chat(
     if not saved:
         # 저장에 실패해도 사용자는 답을 받아야 한다
         return ChatResponse(
-            session_id=session.id, chat_id=-1, reply=reply, correction=correction
+            session_id=session.id,
+            chat_id=-1,
+            scenario=session.scenario,
+            reply=reply,
+            correction=correction,
         )
 
     return ChatResponse(
-        session_id=session.id, chat_id=log.id, reply=reply, correction=correction
+        session_id=session.id,
+        chat_id=log.id,
+        scenario=session.scenario,
+        reply=reply,
+        correction=correction,
     )
 
 
