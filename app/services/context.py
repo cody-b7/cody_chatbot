@@ -12,25 +12,26 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.config import settings
 from app.models import ChatLog, RoleplaySession
-
-SCENARIO_ROLES: dict[str, str] = {
-    "cafe": "You are a friendly barista at a busy coffee shop.",
-    "restaurant": "You are a waiter at a casual restaurant.",
-    "airport": "You are an airline check-in agent at an international airport.",
-    "shopping": "You are a shop assistant in a clothing store.",
-    "smalltalk": "You are a friendly coworker making small talk in an office kitchen.",
-}
+from app.scenarios import get as get_scenario
 
 SYSTEM_TEMPLATE = """{role}
 
-You are helping a Korean learner practice spoken English.
+You are helping a Korean learner practice spoken English through roleplay.
+In this scene the learner needs to: {goal}
 
-Rules:
-- Stay in character. Keep your reply to 1-2 short, natural sentences.
-- Ask a follow-up question so the conversation keeps going.
-- If the learner's last message has an unnatural or incorrect expression,
-  explain it briefly IN KOREAN and give a better version.
-- If their English is already natural, set "correction" to null.
+How to reply:
+- Stay in character. 1-2 short, natural sentences.
+- Ask one follow-up question so the conversation keeps moving.
+- Move the scene forward. Do not restart the situation.
+
+How to correct:
+- Point out AT MOST ONE thing per turn, the one that matters most.
+  Listing every small slip discourages the learner and they stop talking.
+- Ignore typos, punctuation and capitalisation. This is spoken practice.
+- Write the correction IN KOREAN: what sounded off, then a natural version.
+- If their English was already natural, set "correction" to null.
+- If they wrote in Korean, stay in character in English and invite them to
+  try it in English. Put the Korean hint in "correction".
 
 Respond with JSON only, no markdown fence:
 {{"reply": "<your in-character line>", "correction": "<한국어 교정 or null>"}}"""
@@ -42,9 +43,14 @@ def build_messages(
     message: str,
 ) -> list[dict[str, str]]:
     """게이트웨이에 보낼 messages 배열을 만든다."""
-    role = SCENARIO_ROLES.get(session.scenario, SCENARIO_ROLES["smalltalk"])
+    scenario = get_scenario(session.scenario)
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": SYSTEM_TEMPLATE.format(role=role)}
+        {
+            "role": "system",
+            "content": SYSTEM_TEMPLATE.format(
+                role=scenario.role, goal=scenario.goal
+            ),
+        }
     ]
 
     recent = (

@@ -5,15 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.config import settings
-
-# 롤플레이 시나리오. 추가하려면 services/context.py 의 설명도 같이 넣을 것.
-SCENARIOS: tuple[str, ...] = (
-    "cafe",
-    "restaurant",
-    "airport",
-    "shopping",
-    "smalltalk",
-)
+from app.scenarios import KEYS as SCENARIOS  # 정의는 app/scenarios.py 한 곳에만
 
 
 class ChatRequest(BaseModel):

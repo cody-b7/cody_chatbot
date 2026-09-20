@@ -5,7 +5,7 @@
 
 <!-- TODO(B): 아래는 파이프라인 확인용 최소 화면. 자유롭게 다시 만들 것. -->
 <select id="scenario">
-  {% for s in scenarios %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+  {% for s in scenarios %}<option value="{{ s.key }}">{{ s.label }}</option>{% endfor %}
 </select>
 <div id="log"></div>
 <form id="f"><input id="msg" autocomplete="off" placeholder="영어로 입력하세요"><button>보내기</button></form>
