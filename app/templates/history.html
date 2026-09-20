@@ -18,6 +18,7 @@
   .turns dd { margin: 0 0 .5rem; }
   .fix { color: #8f5406; font-size: .85rem; }
   .empty { color: #888; padding: 1rem 0; }
+  .resume { font-size: .8rem; white-space: nowrap; }
 </style>
 
 <h1>내 연습 기록</h1>
@@ -27,7 +28,7 @@
 
 <table>
   <thead>
-    <tr><th>상황</th><th>시작</th><th>턴</th><th>교정</th><th>마지막 대화</th></tr>
+    <tr><th>상황</th><th>시작</th><th>턴</th><th>교정</th><th>마지막 대화</th><th></th></tr>
   </thead>
   <tbody id="sessions"></tbody>
 </table>
@@ -65,12 +66,17 @@ async function load() {
       <td>${s.turn_count}</td>
       <td>${s.correction_count}</td>
       <td>${fmt(s.last_message_at)}</td>
+      <td><a class="resume" href="/?session=${s.id}">이어하기</a></td>
     </tr>
-    <tr class="turns" id="turns-${s.id}" hidden><td colspan="5">불러오는 중…</td></tr>
+    <tr class="turns" id="turns-${s.id}" hidden><td colspan="6">불러오는 중…</td></tr>
   `).join('');
 
   tbody.querySelectorAll('tr.session').forEach(row => {
-    row.addEventListener('click', () => toggle(row.dataset.id));
+    row.addEventListener('click', (e) => {
+      // '이어하기' 링크를 눌렀을 때는 펼치기가 같이 동작하지 않게 한다
+      if (e.target.closest('a')) return;
+      toggle(row.dataset.id);
+    });
   });
 }
 

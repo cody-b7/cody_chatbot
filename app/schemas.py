@@ -46,6 +46,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     session_id: int
     chat_id: int
+    scenario: str                   # 이어하기 때 클라이언트가 상황을 알 수 있게
     reply: str                      # 상대역의 응답
     correction: str | None = None   # 표현 교정 (없을 수 있음)
 
@@ -84,6 +85,15 @@ class SessionSummary(BaseModel):
     turn_count: int
     correction_count: int
     last_message_at: datetime | None
+
+
+class SessionDetail(BaseModel):
+    """세션 하나와 그 안의 대화 전체. 이어하기 화면이 과거 맥락을 복원할 때 쓴다."""
+
+    id: int
+    scenario: str
+    created_at: datetime
+    turns: list[ChatLogItem]
 
 
 class LearningStats(BaseModel):
