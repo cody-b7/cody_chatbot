@@ -24,3 +24,11 @@ def history_page(request: Request, user: User = Depends(get_current_user)):
     return templates.TemplateResponse(
         request, "history.html", {"username": user.username}
     )
+
+
+@router.get("/corrections")
+def corrections_page(request: Request, user: User = Depends(get_current_user)):
+    """자주 틀리는 표현. 쌓인 교정을 복습용으로 되돌려 준다."""
+    return templates.TemplateResponse(
+        request, "corrections.html", {"username": user.username}
+    )
