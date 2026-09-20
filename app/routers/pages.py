@@ -9,7 +9,7 @@ TODO(B): 이 파일과 app/templates/ 전체가 B의 작업 범위다.
 from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 
-from app.schemas import SCENARIOS
+from app.scenarios import SCENARIOS
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
