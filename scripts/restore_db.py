@@ -3,7 +3,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-
 DB_PATH = Path("data/chatbot.db")
 BACKUP_DIR = Path("backups")
 
