@@ -22,5 +22,6 @@ jobs:
             git switch develop
             git pull origin develop
             ./.venv/bin/python -m pip install -r requirements.txt
+            ./.venv/bin/python scripts/migrate_add_is_admin.py
             sudo systemctl restart cody.service
             sudo systemctl is-active --quiet cody.service
