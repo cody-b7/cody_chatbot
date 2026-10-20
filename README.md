@@ -245,7 +245,7 @@ scenario
 관리자          → 200
 ```
 
-관리자 여부는 `ADMIN_USERNAME` 환경변수와 로그인한 사용자의 `username`을 비교하여 판단합니다.
+관리자 여부는 `users` 테이블의 `is_admin` 필드를 기준으로 판단합니다.
 
 ---
 
@@ -445,7 +445,6 @@ http://127.0.0.1:8000
 | `SESSION_SECRET_KEY` | 로그인 세션 서명 키 |
 | `DATABASE_URL` | DB 연결 주소 |
 | `LOG_LEVEL` | 애플리케이션 로그 레벨 |
-| `ADMIN_USERNAME` | 관리자 계정 username |
 | `MAX_MESSAGE_LENGTH` | 사용자 입력 최대 길이 |
 | `DEV_AUTH_BYPASS` | 개발용 인증 우회 기능 |
 
@@ -721,7 +720,7 @@ ChatLog.user_id == 현재 로그인 사용자의 ID
 
 ### 관리자 API
 
-관리자 운영 로그 API는 `ADMIN_USERNAME`과 현재 로그인 사용자의 username을 비교하여 접근을 제한합니다.
+관리자 운영 로그 API는 `users` 테이블의 `is_admin` 필드를 기준으로 접근을 제한하며, `is_admin=true`인 사용자만 접근할 수 있습니다.
 
 ### 저장소에 포함하지 않는 정보
 
