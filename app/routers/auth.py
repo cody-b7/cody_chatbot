@@ -1,39 +1,167 @@
 """회원가입 / 로그인 / 로그아웃.
 
-TODO(B): 이 파일 전체가 B의 작업 범위다. 아래는 라우트 자리만 잡아둔 것이며,
-         경로와 리다이렉트 규칙만 유지하면 내부 구현은 자유롭게 바꿔도 된다.
+인증 화면과의 약속:
+- POST /signup
+  - 성공: /
+  - 실패: /signup?error=<code>
+- POST /login
+  - 성공: /
+  - 실패: /login?error=<code>
+- POST /logout
+  - 성공: /login
 
-구현 메모
-  - 비밀번호는 app/security.py 의 hash_password / verify_password 사용
-    (passlib 은 bcrypt 5.x 와 호환되지 않아 제거했다. 평문 저장 금지)
-  - 로그인 성공 시 request.session["user_id"] = user.id
-  - 로그아웃은 request.session.clear()
-  - 완료하면 app/deps.py 의 DEV_AUTH_BYPASS 블록을 삭제할 것
-  - 로그로 login_success / login_failed 를 남길 것
+오류 코드:
+- duplicate
+- invalid_username
+- invalid_password
+- bad_credentials
 """
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from app.db import get_db
+from app.models import User
+from app.security import MAX_PASSWORD_BYTES, hash_password, verify_password
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 
+def _valid_username(username: str) -> bool:
+    """username이 DB 컬럼 범위에 맞는지 확인한다."""
+    username = username.strip()
+    return 1 <= len(username) <= 50
+
+
+def _valid_password(password: str) -> bool:
+    """빈 비밀번호와 bcrypt 최대 길이 초과를 막는다."""
+    if not password:
+        return False
+
+    return len(password.encode("utf-8")) <= MAX_PASSWORD_BYTES
+
+
 @router.post("/signup")
-def signup(request: Request, db: DbSession = Depends(get_db)):
-    raise NotImplementedError("TODO(B): 회원가입 구현")
+def signup(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    db: DbSession = Depends(get_db),
+):
+    username = username.strip()
+
+    if not _valid_username(username):
+        logger.info("signup_failed reason=invalid_username")
+        return RedirectResponse(
+            "/signup?error=invalid_username",
+            status_code=303,
+        )
+
+    if not _valid_password(password):
+        logger.info(
+            "signup_failed reason=invalid_password username=%s",
+            username,
+        )
+        return RedirectResponse(
+            "/signup?error=invalid_password",
+            status_code=303,
+        )
+
+    existing_user = (
+        db.query(User)
+        .filter(User.username == username)
+        .first()
+    )
+
+    if existing_user is not None:
+        logger.info(
+            "signup_failed reason=duplicate username=%s",
+            username,
+        )
+        return RedirectResponse(
+            "/signup?error=duplicate",
+            status_code=303,
+        )
+
+    user = User(
+        username=username,
+        password_hash=hash_password(password),
+    )
+
+    db.add(user)
+
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        logger.info(
+            "signup_failed reason=duplicate username=%s",
+            username,
+        )
+        return RedirectResponse(
+            "/signup?error=duplicate",
+            status_code=303,
+        )
+
+    request.session["user_id"] = user.id
+
+    logger.info(
+        "signup_success user_id=%s username=%s",
+        user.id,
+        user.username,
+    )
+
+    return RedirectResponse("/", status_code=303)
 
 
 @router.post("/login")
-def login(request: Request, db: DbSession = Depends(get_db)):
-    raise NotImplementedError("TODO(B): 로그인 구현")
+def login(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    db: DbSession = Depends(get_db),
+):
+    username = username.strip()
+
+    user = (
+        db.query(User)
+        .filter(User.username == username)
+        .first()
+    )
+
+    if user is None or not verify_password(password, user.password_hash):
+        logger.info(
+            "login_failed username=%s",
+            username,
+        )
+        return RedirectResponse(
+            "/login?error=bad_credentials",
+            status_code=303,
+        )
+
+    request.session["user_id"] = user.id
+
+    logger.info(
+        "login_success user_id=%s username=%s",
+        user.id,
+        user.username,
+    )
+
+    return RedirectResponse("/", status_code=303)
 
 
 @router.post("/logout")
 def logout(request: Request):
+    user_id = request.session.get("user_id")
+
     request.session.clear()
-    return {"ok": True}
+
+    logger.info("logout user_id=%s", user_id)
+
+    return RedirectResponse("/login", status_code=303)
