@@ -1,6 +1,5 @@
 """관리자 운영 로그 조회 API 테스트."""
 
-from app.config import settings
 from app.routers import admin_logs
 
 
@@ -11,10 +10,8 @@ def test_admin_logs_requires_login(client):
     assert response.status_code == 401
 
 
-def test_admin_logs_rejects_normal_user(auth_client, monkeypatch):
+def test_admin_logs_rejects_normal_user(auth_client):
     """일반 로그인 사용자는 접근할 수 없다."""
-    monkeypatch.setattr(settings, "ADMIN_USERNAME", "admin")
-
     response = auth_client.get("/api/admin/logs")
 
     assert response.status_code == 403
@@ -22,11 +19,15 @@ def test_admin_logs_rejects_normal_user(auth_client, monkeypatch):
 
 def test_admin_logs_returns_empty_when_file_missing(
     auth_client,
+    user,
+    db_session,
     monkeypatch,
     tmp_path,
 ):
     """관리자라도 로그 파일이 없으면 빈 목록을 반환한다."""
-    monkeypatch.setattr(settings, "ADMIN_USERNAME", "tester")
+    user.is_admin = True
+    db_session.commit()
+
     monkeypatch.setattr(
         admin_logs,
         "LOG_FILE",
@@ -41,11 +42,14 @@ def test_admin_logs_returns_empty_when_file_missing(
 
 def test_admin_logs_returns_recent_lines(
     auth_client,
+    user,
+    db_session,
     monkeypatch,
     tmp_path,
 ):
     """관리자는 최근 로그를 조회할 수 있다."""
-    monkeypatch.setattr(settings, "ADMIN_USERNAME", "tester")
+    user.is_admin = True
+    db_session.commit()
 
     log_file = tmp_path / "app.log"
     log_file.write_text(
@@ -56,7 +60,11 @@ def test_admin_logs_returns_recent_lines(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(admin_logs, "LOG_FILE", log_file)
+    monkeypatch.setattr(
+        admin_logs,
+        "LOG_FILE",
+        log_file,
+    )
 
     response = auth_client.get("/api/admin/logs?limit=2")
 
@@ -71,10 +79,12 @@ def test_admin_logs_returns_recent_lines(
 
 def test_admin_logs_limit_validation(
     auth_client,
-    monkeypatch,
+    user,
+    db_session,
 ):
     """limit 허용 범위를 벗어나면 요청을 거부한다."""
-    monkeypatch.setattr(settings, "ADMIN_USERNAME", "tester")
+    user.is_admin = True
+    db_session.commit()
 
     response = auth_client.get("/api/admin/logs?limit=501")
 

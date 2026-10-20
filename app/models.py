@@ -7,7 +7,7 @@ roleplay_sessions 를 둔 이유:
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -23,15 +23,29 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+
+    # 관리자 권한 여부
+    # 기본값은 False이며, 관리자 지정 스크립트를 통해서만 True로 변경한다.
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
     )
 
     sessions: Mapped[list["RoleplaySession"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
+
     chat_logs: Mapped[list["ChatLog"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
 
@@ -41,15 +55,27 @@ class RoleplaySession(Base):
     __tablename__ = "roleplay_sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    scenario: Mapped[str] = mapped_column(String(30))  # cafe / airport / ...
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+    scenario: Mapped[str] = mapped_column(
+        String(30)
+    )  # cafe / airport / ...
+
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
     )
 
-    user: Mapped["User"] = relationship(back_populates="sessions")
+    user: Mapped["User"] = relationship(
+        back_populates="sessions"
+    )
+
     chat_logs: Mapped[list["ChatLog"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan"
+        back_populates="session",
+        cascade="all, delete-orphan",
     )
 
 
@@ -59,22 +85,51 @@ class ChatLog(Base):
     __tablename__ = "chat_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    session_id: Mapped[int] = mapped_column(
-        ForeignKey("roleplay_sessions.id"), index=True
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
     )
 
-    question: Mapped[str] = mapped_column(Text)           # 사용자 발화
-    answer: Mapped[str] = mapped_column(Text)             # 상대역 응답
-    correction: Mapped[str | None] = mapped_column(Text, nullable=True)  # 표현 교정
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("roleplay_sessions.id"),
+        index=True,
+    )
 
-    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    error_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    question: Mapped[str] = mapped_column(Text)  # 사용자 발화
+    answer: Mapped[str] = mapped_column(Text)  # 상대역 응답
+
+    correction: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )  # 표현 교정
+
+    model: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    latency_ms: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    error_code: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False, index=True
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+        index=True,
     )
 
-    user: Mapped["User"] = relationship(back_populates="chat_logs")
-    session: Mapped["RoleplaySession"] = relationship(back_populates="chat_logs")
+    user: Mapped["User"] = relationship(
+        back_populates="chat_logs"
+    )
+
+    session: Mapped["RoleplaySession"] = relationship(
+        back_populates="chat_logs"
+    )
