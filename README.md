@@ -446,18 +446,11 @@ http://127.0.0.1:8000
 | `DATABASE_URL` | DB 연결 주소 |
 | `LOG_LEVEL` | 애플리케이션 로그 레벨 |
 | `MAX_MESSAGE_LENGTH` | 사용자 입력 최대 길이 |
-| `DEV_AUTH_BYPASS` | 개발용 인증 우회 기능 |
 
 기본 DB:
 
 ```env
 DATABASE_URL=sqlite:///./data/chatbot.db
-```
-
-운영 환경에서는 반드시 다음과 같이 설정합니다.
-
-```env
-DEV_AUTH_BYPASS=false
 ```
 
 실제 API Key와 Secret 값은 `.env`에만 저장하며 Git 저장소에 포함하지 않습니다.
