@@ -58,6 +58,23 @@ def test_signup_invalid_username(client):
     assert response.status_code == 303
     assert response.headers["location"] == "/signup?error=invalid_username"
 
+def test_signup_reserved_admin_username(client):
+    """admin 예약 아이디는 대소문자와 관계없이 가입할 수 없다."""
+    for username in ("admin", "Admin", "ADMIN"):
+        response = client.post(
+            "/signup",
+            data={
+                "username": username,
+                "password": "test1234",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert (
+            response.headers["location"]
+            == "/signup?error=reserved_username"
+        )
 
 def test_signup_invalid_password(client):
     """빈 비밀번호는 거부한다."""
