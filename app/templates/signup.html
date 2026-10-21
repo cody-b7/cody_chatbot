@@ -7,10 +7,15 @@
 
 {% if error == "duplicate" %}
 <p>이미 사용 중인 아이디입니다.</p>
+
 {% elif error == "invalid_username" %}
 <p>올바른 아이디를 입력해주세요.</p>
+
 {% elif error == "invalid_password" %}
 <p>올바른 비밀번호를 입력해주세요.</p>
+
+{% elif error == "reserved_username" %}
+<p>사용할 수 없는 아이디입니다.</p>
 {% endif %}
 
 <form method="post" action="/signup">

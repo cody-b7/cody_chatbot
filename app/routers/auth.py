@@ -14,6 +14,7 @@
 - duplicate
 - invalid_username
 - invalid_password
+- reserved_username
 - bad_credentials
 """
 
@@ -54,6 +55,16 @@ def signup(
     db: DbSession = Depends(get_db),
 ):
     username = username.strip()
+
+    if username.lower() == "admin":
+        logger.info(
+            "signup_failed reason=reserved_username username=%s",
+            username,
+        )
+        return RedirectResponse(
+            "/signup?error=reserved_username",
+            status_code=303,
+        )
 
     if not _valid_username(username):
         logger.info("signup_failed reason=invalid_username")
