@@ -3,6 +3,10 @@
 {% block content %}
 <h1>영어 회화 연습</h1>
 
+<form method="post" action="/logout">
+  <button type="submit">로그아웃</button>
+</form>
+
 <!-- TODO(B): 아래는 파이프라인 확인용 최소 화면. 자유롭게 다시 만들 것. -->
 <select id="scenario">
   {% for s in scenarios %}<option value="{{ s.key }}">{{ s.label }}</option>{% endfor %}
