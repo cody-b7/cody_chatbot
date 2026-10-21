@@ -88,7 +88,7 @@ AI 호출은 코디세이 게이트웨이의 OpenAI 호환 엔드포인트를 �
 | 컴포넌트 | 역할 |
 |---|---|
 | `app/main.py` | 앱 생성, 세션·요청 로깅 미들웨어, 예외 처리 |
-| `app/routers/pages.py` | 화면 라우트 |
+| `app/routers/pages.py` | 화면 라우트 및 로그인 접근 제어 |
 | `app/routers/auth.py` | 회원가입 / 로그인 / 로그아웃 |
 | `app/routers/chat.py` | 챗 파이프라인 |
 | `app/routers/logs.py` | 사용자별 대화·교정·학습 기록 조회 |
@@ -279,6 +279,7 @@ erDiagram
         int id PK
         string username UK
         string password_hash
+        boolean is_admin
         datetime created_at
     }
 
@@ -312,6 +313,7 @@ erDiagram
 | `id` | 사용자 PK |
 | `username` | 로그인 사용자명 |
 | `password_hash` | 해시된 비밀번호 |
+| `is_admin` | 관리자 여부. 기본값은 `false` |
 | `created_at` | 사용자 생성 시각 |
 
 ### `roleplay_sessions`
@@ -490,6 +492,9 @@ ai_call_success
 ai_call_failed
 db_save_success
 db_save_failed
+login_success
+login_failed
+logout
 ```
 
 로그는 콘솔과 파일에 함께 기록됩니다.
@@ -567,7 +572,31 @@ ok
 
 ---
 
-## 11. 운영 서버 및 배포
+## 11. DB Migration
+
+기존 운영 DB에 새로운 컬럼을 추가해야 하는 경우 기존 데이터를 유지하기 위해 migration 스크립트를 사용합니다.
+
+현재 `users` 테이블의 `is_admin` 컬럼 추가를 위한 스크립트:
+
+```bash
+python scripts/migrate_add_is_admin.py
+```
+
+운영 서버에서는 다음과 같이 실행할 수 있습니다.
+
+```bash
+./.venv/bin/python scripts/migrate_add_is_admin.py
+```
+
+스크립트는 먼저 `users` 테이블의 컬럼을 확인합니다.
+
+`is_admin` 컬럼이 이미 존재하면 아무 작업도 수행하지 않으므로 반복 실행해도 기존 컬럼을 다시 추가하지 않습니다.
+
+기존 사용자는 migration 이후에도 일반 사용자 상태인 `is_admin=false`를 유지합니다.
+
+---
+
+## 12. 운영 서버 및 배포
 
 운영 서버는 Ubuntu 기반 Azure VM을 사용합니다.
 
@@ -606,7 +635,7 @@ deploy/
 
 ---
 
-## 12. Nginx 및 HTTPS
+## 13. Nginx 및 HTTPS
 
 Nginx가 외부 요청을 받고 FastAPI로 전달합니다.
 
@@ -654,7 +683,7 @@ deploy/README.md
 
 ---
 
-## 13. GitHub Actions 자동 배포
+## 14. GitHub Actions 자동 배포
 
 `develop` 브랜치에 변경사항이 Merge되면 GitHub Actions가 자동으로 운영 서버에 배포합니다.
 
@@ -666,7 +695,8 @@ flowchart LR
     D[develop Merge]
     E[GitHub Actions]
     F[Azure VM]
-    G[cody.service 재시작]
+    G[DB Migration]
+    H[cody.service 재시작]
 
     A --> B
     B --> C
@@ -674,6 +704,7 @@ flowchart LR
     D --> E
     E -->|SSH| F
     F --> G
+    G --> H
 ```
 
 자동 배포 과정:
@@ -682,8 +713,17 @@ flowchart LR
 2. SSH로 Azure VM 접속
 3. `develop` 브랜치 최신 코드 가져오기
 4. `requirements.txt` 의존성 설치
-5. `cody.service` 재시작
-6. 서비스 활성 상태 확인
+5. 기존 SQLite DB에 `is_admin` 컬럼이 필요한 경우 migration 실행
+6. `cody.service` 재시작
+7. 서비스 활성 상태 확인
+
+기존 운영 DB와의 호환성을 위해 배포 과정에서 다음 migration을 실행합니다.
+
+```bash
+./.venv/bin/python scripts/migrate_add_is_admin.py
+```
+
+해당 스크립트는 `is_admin` 컬럼이 이미 존재하면 아무 작업도 하지 않도록 구현되어 있어 반복 배포에도 사용할 수 있습니다.
 
 GitHub Actions에서 사용하는 서버 정보는 GitHub Secrets에 저장합니다.
 
@@ -697,7 +737,35 @@ SSH Private Key는 코드나 저장소에 포함하지 않습니다.
 
 ---
 
-## 14. 보안 및 접근 제어
+## 15. 보안 및 접근 제어
+
+### 사용자 인증
+
+회원가입 시 비밀번호는 평문으로 저장하지 않고 bcrypt 해시 형태로 저장합니다.
+
+로그인에 성공하면 세션에 사용자 ID를 저장하고, 이후 인증이 필요한 기능에서는 해당 세션을 기준으로 사용자를 확인합니다.
+
+비로그인 사용자가 메인 화면에 접근하면 `/login`으로 이동합니다.
+
+개발 단계에서 사용했던 인증 우회 기능은 제거했으며, 현재는 실제 로그인 세션만 사용합니다.
+
+### 예약 관리자 아이디
+
+`admin` 사용자명은 일반 사용자가 회원가입으로 선점하지 못하도록 예약 아이디로 차단합니다.
+
+대소문자를 변경한 다음 사용자명도 차단합니다.
+
+예:
+
+```text
+admin
+Admin
+ADMIN
+```
+
+단, 사용자명이 관리자 권한을 결정하지는 않습니다.
+
+실제 관리자 권한은 `users.is_admin` 필드를 기준으로 판단합니다.
 
 ### 사용자 데이터
 
@@ -714,6 +782,40 @@ ChatLog.user_id == 현재 로그인 사용자의 ID
 ### 관리자 API
 
 관리자 운영 로그 API는 `users` 테이블의 `is_admin` 필드를 기준으로 접근을 제한하며, `is_admin=true`인 사용자만 접근할 수 있습니다.
+
+일반 회원가입으로 생성된 사용자의 `is_admin` 기본값은 `false`입니다.
+
+관리자 권한을 부여하려면 운영 서버에서 다음 명령을 실행합니다.
+
+```bash
+./.venv/bin/python -m scripts.set_admin <username> true
+```
+
+예:
+
+```bash
+./.venv/bin/python -m scripts.set_admin codyadmin true
+```
+
+관리자 권한을 해제하려면 다음과 같이 실행합니다.
+
+```bash
+./.venv/bin/python -m scripts.set_admin <username> false
+```
+
+관리자 로그 API:
+
+```text
+GET /api/admin/logs
+```
+
+권한에 따른 응답:
+
+```text
+비로그인 → 401 Unauthorized
+일반 사용자 → 403 Forbidden
+관리자 → 200 OK
+```
 
 ### 저장소에 포함하지 않는 정보
 
@@ -732,19 +834,22 @@ Let's Encrypt Private Key
 
 ---
 
-## 15. 팀 구성원 역할
+## 16. 팀 구성원 역할
+
+프로젝트는 초기에는 A/B/C 3인 체제로 역할을 분담했으나, 진행 중 B가 이탈하여 남은 작업을 A와 C가 분담했습니다.
+
+최종 역할은 실제 구현 내용과 Git 이력을 기준으로 정리했습니다.
 
 | 구분 | 담당 | 범위 |
 |---|---|---|
-| A | 인프라 · DB · 배포 | DB 스키마, Azure VM, nginx/systemd, 자동 배포, HTTPS, 로그 파일, DB 백업·복구, 관리자 운영 로그 API, ERD, 배포 문서 |
-| B | 인증 · 웹 UI | 회원가입/로그인, 접근 제어, 템플릿·정적 파일 |
-| C | AI 파이프라인 · 운영 | AI 게이트웨이 연동, 문맥 전략, 사용자 대화 로그 저장·조회, 교정 기록, 학습 통계 |
+| A | 인프라 · DB · 배포 · 인증 | DB 스키마, SQLite 운영, Azure VM, Nginx/systemd, GitHub Actions 자동 배포, HTTPS, 운영 로그 파일, 로그 Rotation, DB 백업·복구, DB migration, 회원가입·로그인·로그아웃, 로그인 접근 제어, 로그인·회원가입 화면 연결, 관리자 `is_admin` 권한, 관리자 설정 스크립트, 관리자 운영 로그 API, ERD 및 운영·배포 문서 |
+| C | AI 파이프라인 · 대화 기능 · 운영 | AI Gateway 연동, 주 모델 및 fallback 처리, 대화 문맥 유지, 챗 파이프라인, 사용자 대화 로그 저장·조회, 교정 기록, 세션 조회, 학습 통계, AI 오류 처리 및 관련 운영 기능 |
 
 트랙별 세부 내용은 [`docs/HANDOFF.md`](docs/HANDOFF.md)를 참고합니다.
 
 ---
 
-## 16. 협업 규칙
+## 17. 협업 규칙
 
 브랜치 구조:
 
@@ -773,3 +878,77 @@ Issue 생성
 - PR은 팀원 최소 1명의 승인을 받습니다.
 - CI가 통과한 뒤 Merge합니다.
 - 개인별 커밋 이력을 보존하기 위해 squash merge를 사용하지 않습니다.
+
+---
+
+## 18. 운영 확인 명령
+
+### 서버 상태 확인
+
+```bash
+sudo systemctl status cody.service --no-pager
+```
+
+### DB 사용자 및 관리자 권한 확인
+
+```bash
+./.venv/bin/python -c "import sqlite3; c=sqlite3.connect('data/chatbot.db'); print(c.execute('SELECT id, username, is_admin FROM users').fetchall()); c.close()"
+```
+
+### DB 컬럼 확인
+
+```bash
+./.venv/bin/python -c "import sqlite3; c=sqlite3.connect('data/chatbot.db'); print(c.execute('PRAGMA table_info(users)').fetchall()); c.close()"
+```
+
+### 관리자 지정
+
+```bash
+./.venv/bin/python -m scripts.set_admin <username> true
+```
+
+### 관리자 해제
+
+```bash
+./.venv/bin/python -m scripts.set_admin <username> false
+```
+
+### DB 백업
+
+```bash
+./.venv/bin/python scripts/backup_db.py
+```
+
+### DB 무결성 확인
+
+```bash
+./.venv/bin/python -c "import sqlite3; conn=sqlite3.connect('data/chatbot.db'); print(conn.execute('PRAGMA integrity_check;').fetchone()[0]); conn.close()"
+```
+
+### HTTPS 인증서 갱신 테스트
+
+```bash
+sudo certbot renew --dry-run
+```
+
+---
+
+## 19. 운영 서비스
+
+서비스 주소:
+
+```text
+https://cody-chatbot.koreacentral.cloudapp.azure.com
+```
+
+상태 확인 API:
+
+```text
+GET /health
+```
+
+관리자 운영 로그 API:
+
+```text
+GET /api/admin/logs
+```
