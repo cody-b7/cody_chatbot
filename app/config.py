@@ -33,10 +33,6 @@ class Settings(BaseSettings):
     # --- 입력 검증 ---
     MAX_MESSAGE_LENGTH: int = 1000
 
-    # --- 개발 편의 ---
-    # 인증이 붙기 전까지 첫 사용자로 자동 로그인. 배포 시 반드시 false.
-    DEV_AUTH_BYPASS: bool = False
-
 
 @lru_cache
 def get_settings() -> Settings:

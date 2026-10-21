@@ -30,7 +30,7 @@ Git Bash 에서 — CMD 는 `cp`·`./` 문법이 달라 아래 명령이 안 먹
 ```bash
 py -3.12 -m venv .venv          # mac: python3.12 -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
-cp .env.example .env          # AI_MOCK=true, DEV_AUTH_BYPASS=true 상태로 시작
+cp .env.example .env          # AI_MOCK=true 상태로 시작
 python -c "import secrets; print(secrets.token_hex(32))"   # SESSION_SECRET_KEY 에 붙여넣기
 uvicorn app.main:app --reload
 ```
@@ -66,7 +66,7 @@ C의 월 토큰 한도를 쓰지 않는다.
 - [ ] `auth.py` 회원가입 — 아이디 중복 검사, 비밀번호 길이 제한
 - [ ] `auth.py` 로그인 — 성공 시 `request.session["user_id"] = user.id`
 - [ ] `login_success` / `login_failed` 로그 남기기
-- [ ] **`app/deps.py` 의 `DEV_AUTH_BYPASS` 블록 삭제** ★ 인증 완료 신호
+- [x] **`app/deps.py` 의 `DEV_AUTH_BYPASS` 블록 삭제** ★ 인증 완료 신호
 - [ ] `pages.py` — 비로그인으로 `/` 접근 시 `/login` 리다이렉트
 - [ ] `templates/login.html` — 로그인·회원가입 폼
 - [ ] `templates/index.html` — 채팅 화면 제대로 만들기 (현재는 동작 확인용 최소본)
