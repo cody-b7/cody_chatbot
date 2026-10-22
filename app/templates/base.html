@@ -3,10 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Cody{% endblock %}</title>
+  <title>{% block title %}Cody{% endblock %} · Cody</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hahmlet:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  {% set path = request.url.path %}
+  {% if username or request.session.get("user_id") %}
+  <header class="topbar">
+    <a class="brand" href="/">Cody</a>
+    <nav class="nav" aria-label="주요 메뉴">
+      <a href="/" {% if path == "/" %}aria-current="page"{% endif %}>연습하기</a>
+      <a href="/history" {% if path == "/history" %}aria-current="page"{% endif %}>연습 기록</a>
+      <a href="/corrections" {% if path == "/corrections" %}aria-current="page"{% endif %}>자주 틀리는 표현</a>
+    </nav>
+    <form class="signout" method="post" action="/logout">
+      {% if username %}<span class="who">{{ username }}</span>{% endif %}
+      <button type="submit" class="link-button">로그아웃</button>
+    </form>
+  </header>
+  {% endif %}
   <main>{% block content %}{% endblock %}</main>
 </body>
 </html>
