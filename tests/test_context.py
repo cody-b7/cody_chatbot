@@ -23,6 +23,9 @@ def test_every_scenario_is_complete(scenario):
     assert scenario.label, f"{scenario.key}: 화면에 보여줄 한국어 이름이 없다"
     assert scenario.role.startswith("You are"), f"{scenario.key}: 배역 설명이 없다"
     assert scenario.goal, f"{scenario.key}: 학습 목표가 없다"
+    assert scenario.partner, f"{scenario.key}: 말풍선에 붙일 배역 이름이 없다"
+    assert scenario.hint, f"{scenario.key}: 빈 화면 안내가 없다"
+    assert scenario.opener, f"{scenario.key}: 첫 마디 예시가 없다"
 
 
 def test_unknown_scenario_falls_back():
