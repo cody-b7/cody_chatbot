@@ -1,64 +1,286 @@
 {% extends "base.html" %}
-{% block title %}영어 회화 연습{% endblock %}
+{% block title %}연습하기{% endblock %}
 {% block content %}
-<h1>영어 회화 연습</h1>
+<div class="practice">
 
-<form method="post" action="/logout">
-  <button type="submit">로그아웃</button>
-</form>
+  <aside class="scenes">
+    <h2 id="scenes-title">상황 고르기</h2>
+    <ul aria-labelledby="scenes-title">
+      {% for s in scenarios %}
+      <li>
+        <button type="button" class="scene"
+                data-key="{{ s.key }}" data-label="{{ s.label }}"
+                data-partner="{{ s.partner }}" data-hint="{{ s.hint }}" data-opener="{{ s.opener }}"
+                aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ s.label }}</button>
+      </li>
+      {% endfor %}
+    </ul>
+  </aside>
 
-<!-- TODO(B): 아래는 파이프라인 확인용 최소 화면. 자유롭게 다시 만들 것. -->
-<select id="scenario">
-  {% for s in scenarios %}<option value="{{ s.key }}">{{ s.label }}</option>{% endfor %}
-</select>
-<div id="log"></div>
-<form id="f"><input id="msg" autocomplete="off" placeholder="영어로 입력하세요"><button>보내기</button></form>
+  <section class="stage" aria-labelledby="scene-title">
+    <div class="stage-head">
+      <div>
+        <h1 id="scene-title">{{ scenarios[0].label }}</h1>
+        <p id="scene-hint">{{ scenarios[0].hint }}</p>
+      </div>
+      <button type="button" class="button quiet" id="restart">새 대화</button>
+    </div>
+
+    <div class="log" id="log" aria-live="polite"></div>
+
+    <div class="composer">
+      <form id="composer">
+        <label for="message" class="sr-only">영어로 말하기</label>
+        <textarea id="message" rows="1" maxlength="1000" placeholder="영어로 말해 보세요" autocomplete="off"></textarea>
+        <button type="submit" class="button" id="send">보내기</button>
+      </form>
+      <p class="tip">Enter로 보내고, Shift+Enter로 줄을 바꿉니다.</p>
+    </div>
+  </section>
+
+</div>
+
+<template id="empty-tpl">
+  <div class="empty">
+    <p data-hint></p>
+    <button type="button" class="opener"><small>이렇게 시작해 보세요</small><span data-opener></span></button>
+  </div>
+</template>
 
 <script>
-let sessionId = null;
-const log = document.getElementById('log');
-const add = (who, text) => { const p = document.createElement('p'); p.textContent = who + ': ' + text; log.appendChild(p); };
+(() => {
+  const log = document.getElementById('log');
+  const form = document.getElementById('composer');
+  const input = document.getElementById('message');
+  const sendBtn = document.getElementById('send');
+  const sceneButtons = [...document.querySelectorAll('.scene')];
 
-// TODO(B): 화면을 새로 만드실 때 아래 '이어하기' 동작만 옮겨와 주세요.
-//   /history 에서 넘어올 때 ?session=<id> 가 붙습니다.
-//   세션 상세를 불러와 지난 대화를 복원하고, 같은 세션으로 이어서 보냅니다.
-async function resumeFromQuery() {
-  const id = new URLSearchParams(location.search).get('session');
-  if (!id) return;
+  let scene = sceneButtons[0].dataset;
+  let sessionId = null;
+  let busy = false;
 
-  const res = await fetch('/api/me/sessions/' + encodeURIComponent(id));
-  if (!res.ok) { add('안내', '이어할 대화를 찾지 못했어요. 새로 시작합니다.'); return; }
+  // ---------- 상황 ----------
 
-  const detail = await res.json();
-  sessionId = detail.id;
-  document.getElementById('scenario').value = detail.scenario;
-  detail.turns.forEach(t => {
-    add('나', t.question);
-    add('상대', t.answer);
-    if (t.correction) add('교정', t.correction);
+  function selectScene(key, { keepLog = false } = {}) {
+    const btn = sceneButtons.find(b => b.dataset.key === key) || sceneButtons[0];
+    sceneButtons.forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+    scene = btn.dataset;
+    document.getElementById('scene-title').textContent = scene.label;
+    document.getElementById('scene-hint').textContent = scene.hint;
+    if (!keepLog) {
+      sessionId = null;
+      showEmpty();
+    }
+  }
+
+  sceneButtons.forEach(b => b.addEventListener('click', () => {
+    if (busy) return;
+    selectScene(b.dataset.key);
+    history.replaceState(null, '', '/');
+    input.focus();
+  }));
+
+  document.getElementById('restart').addEventListener('click', () => {
+    if (busy) return;
+    selectScene(scene.key);
+    history.replaceState(null, '', '/');
+    input.focus();
   });
-  add('안내', '지난 대화에 이어서 연습합니다.');
-}
-resumeFromQuery();
 
-document.getElementById('f').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const input = document.getElementById('msg');
-  const message = input.value.trim();
-  if (!message) return;
-  add('나', message);
-  input.value = '';
+  function showEmpty() {
+    log.replaceChildren();
+    const node = document.getElementById('empty-tpl').content.cloneNode(true);
+    node.querySelector('[data-hint]').textContent =
+      `${scene.partner}${withParticle(scene.partner)} 영어로 대화합니다. 먼저 말을 걸어 보세요.`;
+    node.querySelector('[data-opener]').textContent = scene.opener;
+    node.querySelector('.opener').addEventListener('click', () => {
+      input.value = scene.opener;
+      grow();
+      input.focus();
+    });
+    log.append(node);
+  }
 
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, scenario: document.getElementById('scenario').value, session_id: sessionId })
+  // 받침이 있으면 '과', 없으면 '와' (면접관과 / 바리스타와)
+  function withParticle(word) {
+    const code = word.charCodeAt(word.length - 1) - 0xAC00;
+    if (code < 0 || code > 11171) return '와';
+    return code % 28 ? '과' : '와';
+  }
+
+  // ---------- 대화 그리기 ----------
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function clearEmpty() {
+    log.querySelector('.empty')?.remove();
+  }
+
+  function addMine(text) {
+    clearEmpty();
+    const turn = el('div', 'turn me');
+    turn.append(el('div', 'bubble', text));
+    log.append(turn);
+    scrollDown();
+    return turn;
+  }
+
+  function addCorrection(turn, text) {
+    const note = el('p', 'note');
+    note.append(el('b', '', '교정'));
+    note.append(el('span', '', text));
+    turn.append(note);
+  }
+
+  function addTheirs(text) {
+    const turn = el('div', 'turn them');
+    turn.append(el('p', 'speaker', scene.partner));
+    turn.append(el('div', 'bubble', text));
+    log.append(turn);
+    scrollDown();
+  }
+
+  function addAside(text) {
+    clearEmpty();
+    log.append(el('p', 'aside-note', text));
+  }
+
+  function showTyping() {
+    const turn = el('div', 'turn them typing');
+    turn.append(el('p', 'speaker', scene.partner));
+    const bubble = el('div', 'bubble');
+    bubble.setAttribute('role', 'status');
+    bubble.setAttribute('aria-label', '상대가 답하는 중');
+    bubble.append(el('i'), el('i'), el('i'));
+    turn.append(bubble);
+    log.append(turn);
+    scrollDown();
+    return turn;
+  }
+
+  function scrollDown() {
+    window.scrollTo({ top: document.body.scrollHeight });
+  }
+
+  // ---------- 보내기 ----------
+
+  async function send(text, turn) {
+    busy = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = '기다리는 중';
+    const typing = showTyping();
+
+    let res, data;
+    try {
+      res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, scenario: scene.key, session_id: sessionId }),
+      });
+      data = await res.json().catch(() => ({}));
+    } catch {
+      res = null;
+    }
+
+    typing.remove();
+    busy = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = '보내기';
+
+    if (res && res.status === 401) {
+      location.href = '/login';
+      return;
+    }
+
+    if (!res || !res.ok) {
+      showTrouble(turn, text, problemMessage(res, data));
+      return;
+    }
+
+    sessionId = data.session_id;
+    turn.classList.remove('failed');
+    if (data.correction) addCorrection(turn, data.correction);
+    addTheirs(data.reply);
+  }
+
+  function problemMessage(res, data) {
+    if (!res) return '인터넷 연결을 확인한 뒤 다시 보내 주세요.';
+    if (res.status === 422) {
+      const msg = data?.detail?.[0]?.msg;
+      return msg ? msg.replace(/^Value error, /, '') : '보낸 내용을 확인해 주세요.';
+    }
+    return data?.message || '답을 받지 못했습니다. 잠시 뒤 다시 보내 주세요.';
+  }
+
+  function showTrouble(turn, text, message) {
+    turn.classList.add('failed');
+    turn.querySelector('.trouble')?.remove();
+    const box = el('div', 'trouble');
+    box.setAttribute('role', 'alert');
+    box.append(el('span', '', message));
+    const retry = el('button', '', '다시 보내기');
+    retry.type = 'button';
+    retry.addEventListener('click', () => {
+      if (busy) return;
+      box.remove();
+      send(text, turn);
+    });
+    box.append(retry);
+    turn.append(box);
+    scrollDown();
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || busy) return;
+    input.value = '';
+    grow();
+    send(text, addMine(text));
   });
-  const data = await res.json();
-  if (!res.ok) { add('오류', data.message || '문제가 발생했어요.'); return; }
-  sessionId = data.session_id;
-  add('상대', data.reply);
-  if (data.correction) add('교정', data.correction);
-});
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  function grow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight + 2, 160) + 'px';
+  }
+  input.addEventListener('input', grow);
+
+  // ---------- 이어하기: /history 에서 ?session=<id> 로 들어온 경우 ----------
+
+  async function resume(id) {
+    const res = await fetch('/api/me/sessions/' + encodeURIComponent(id));
+    if (!res.ok) {
+      showEmpty();
+      addAside('이어서 할 대화를 찾지 못해 새 대화로 시작합니다.');
+      return;
+    }
+    const detail = await res.json();
+    selectScene(detail.scenario, { keepLog: true });
+    sessionId = detail.id;
+    log.replaceChildren();
+    detail.turns.forEach(t => {
+      const turn = addMine(t.question);
+      if (t.correction) addCorrection(turn, t.correction);
+      addTheirs(t.answer);
+    });
+    addAside('지난 대화에 이어서 연습합니다.');
+  }
+
+  const resumeId = new URLSearchParams(location.search).get('session');
+  if (resumeId) resume(resumeId);
+  else showEmpty();
+})();
 </script>
 {% endblock %}

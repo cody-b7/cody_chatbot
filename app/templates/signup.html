@@ -3,49 +3,37 @@
 {% block title %}회원가입{% endblock %}
 
 {% block content %}
-<h1>회원가입</h1>
+<div class="auth">
+  <a class="brand" href="/login">Cody</a>
+  <p class="lede">연습한 대화와 받은 교정은 내 계정에만 쌓입니다.</p>
 
-{% if error == "duplicate" %}
-<p>이미 사용 중인 아이디입니다.</p>
+  <h1>회원가입</h1>
 
-{% elif error == "invalid_username" %}
-<p>올바른 아이디를 입력해주세요.</p>
+  <form method="post" action="/signup">
+    {% if error %}
+    <p class="form-error" role="alert">
+      {% if error == "duplicate" %}이미 쓰고 있는 아이디입니다. 다른 아이디를 입력해 주세요.
+      {% elif error == "invalid_username" %}아이디는 1~50자로 입력해 주세요.
+      {% elif error == "invalid_password" %}비밀번호를 다시 입력해 주세요. 너무 길면 쓸 수 없습니다.
+      {% elif error == "reserved_username" %}쓸 수 없는 아이디입니다. 다른 아이디를 입력해 주세요.
+      {% else %}가입하지 못했습니다. 다시 시도해 주세요.
+      {% endif %}
+    </p>
+    {% endif %}
 
-{% elif error == "invalid_password" %}
-<p>올바른 비밀번호를 입력해주세요.</p>
+    <div class="field">
+      <label for="username">아이디</label>
+      <input type="text" id="username" name="username" required maxlength="50" autocomplete="username" autofocus>
+    </div>
 
-{% elif error == "reserved_username" %}
-<p>사용할 수 없는 아이디입니다.</p>
-{% endif %}
+    <div class="field">
+      <label for="password">비밀번호</label>
+      <input type="password" id="password" name="password" required autocomplete="new-password">
+    </div>
 
-<form method="post" action="/signup">
-  <div>
-    <label for="username">아이디</label>
-    <input
-      type="text"
-      id="username"
-      name="username"
-      required
-      autocomplete="username"
-    >
-  </div>
+    <button type="submit" class="button">가입하고 시작하기</button>
+  </form>
 
-  <div>
-    <label for="password">비밀번호</label>
-    <input
-      type="password"
-      id="password"
-      name="password"
-      required
-      autocomplete="new-password"
-    >
-  </div>
-
-  <button type="submit">회원가입</button>
-</form>
-
-<p>
-  이미 계정이 있나요?
-  <a href="/login">로그인</a>
-</p>
+  <p class="switch">이미 계정이 있다면 <a href="/login">로그인</a></p>
+</div>
 {% endblock %}
