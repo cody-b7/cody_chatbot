@@ -1,7 +1,14 @@
-"""대화 로그 조회. 사용자는 자기 로그만 볼 수 있다.
+"""내 학습 기록 조회. 사용자는 자기 기록만 볼 수 있다.
 
 요건 4("사용자 기준 로그 조회/추적")를 담당하는 라우터다.
 모든 쿼리에 user_id 필터가 들어가며, 남의 기록은 어떤 경로로도 나오지 않는다.
+
+엔드포인트는 화면이 실제로 쓰는 단위로만 둔다.
+  /chats             대화 로그 원본 (실패한 턴 포함) — 추적·운영용
+  /sessions          세션 목록 (기록 화면)
+  /sessions/{id}     세션 하나의 대화 (기록 화면 펼치기, 이어하기)
+  /corrections       교정 모음 (교정 화면)
+  /stats             요약 통계 + 상황별 교정 횟수 (기록·교정 화면)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,33 +19,41 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import ChatLog, RoleplaySession, User
 from app.schemas import (
-    ChatLogItem,
+    ChatLogEntry,
     CorrectionItem,
+    ErrorResponse,
     LearningStats,
     SessionDetail,
     SessionSummary,
 )
 
-router = APIRouter(prefix="/api/me", tags=["logs"])
+router = APIRouter(
+    prefix="/api/me",
+    tags=["records"],
+    responses={401: {"model": ErrorResponse, "description": "로그인하지 않음"}},
+)
 
 
-@router.get("/chats", response_model=list[ChatLogItem])
-def my_chats(
+@router.get("/chats", response_model=list[ChatLogEntry], summary="내 대화 로그 (최신순)")
+def list_my_chat_logs(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    session_id: int | None = None,
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """내 대화 기록. session_id 를 주면 그 세션만."""
-    q = db.query(ChatLog).filter(ChatLog.user_id == user.id)
-    if session_id is not None:
-        q = q.filter(ChatLog.session_id == session_id)
-    return q.order_by(ChatLog.id.desc()).offset(offset).limit(limit).all()
+    """대화 로그 원본. AI 호출에 실패한 턴도 error_code 와 함께 나온다."""
+    return (
+        db.query(ChatLog)
+        .filter(ChatLog.user_id == user.id)
+        .order_by(ChatLog.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
 
-@router.get("/corrections", response_model=list[CorrectionItem])
-def my_corrections(
+@router.get("/corrections", response_model=list[CorrectionItem], summary="내가 받은 교정")
+def list_my_corrections(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     scenario: str | None = None,
@@ -72,25 +87,8 @@ def my_corrections(
     ]
 
 
-@router.get("/corrections/by-scenario")
-def corrections_by_scenario(
-    db: DbSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> dict[str, int]:
-    """상황별 교정 횟수. 어떤 상황에서 자주 막히는지 보여준다."""
-    rows = (
-        db.query(RoleplaySession.scenario, func.count(ChatLog.id))
-        .join(ChatLog, ChatLog.session_id == RoleplaySession.id)
-        .filter(ChatLog.user_id == user.id, ChatLog.correction.isnot(None))
-        .group_by(RoleplaySession.scenario)
-        .order_by(func.count(ChatLog.id).desc())
-        .all()
-    )
-    return {scenario: count for scenario, count in rows}
-
-
-@router.get("/sessions", response_model=list[SessionSummary])
-def my_sessions(
+@router.get("/sessions", response_model=list[SessionSummary], summary="내 연습 세션 목록")
+def list_my_sessions(
     limit: int = Query(default=30, ge=1, le=100),
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -129,12 +127,16 @@ def my_sessions(
     ]
 
 
-@router.get("/stats", response_model=LearningStats)
-def my_stats(
+@router.get("/stats", response_model=LearningStats, summary="내 학습 요약 통계")
+def get_my_stats(
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """학습 요약 통계."""
+    """학습 요약 통계와 상황별 교정 횟수.
+
+    상황별 교정 횟수는 원래 별도 엔드포인트였지만, 같은 "요약" 성격이라
+    여기에 합쳤다. 화면이 부르는 API 수가 하나 줄어든다.
+    """
     total_sessions = (
         db.query(func.count(RoleplaySession.id))
         .filter(RoleplaySession.user_id == user.id)
@@ -153,24 +155,39 @@ def my_stats(
         .one()
     )
 
+    by_scenario = (
+        db.query(RoleplaySession.scenario, func.count(ChatLog.id))
+        .join(ChatLog, ChatLog.session_id == RoleplaySession.id)
+        .filter(ChatLog.user_id == user.id, ChatLog.correction.isnot(None))
+        .group_by(RoleplaySession.scenario)
+        .order_by(func.count(ChatLog.id).desc())
+        .all()
+    )
+
     return LearningStats(
         total_sessions=total_sessions,
         total_turns=turns or 0,
         total_corrections=corrections or 0,
         error_count=errors or 0,
         avg_latency_ms=round(avg_latency) if avg_latency is not None else None,
+        corrections_by_scenario={scenario: count for scenario, count in by_scenario},
     )
 
 
-@router.get("/sessions/{session_id}", response_model=SessionDetail)
-def session_detail(
+@router.get(
+    "/sessions/{session_id}",
+    response_model=SessionDetail,
+    summary="세션 하나의 대화 전체",
+    responses={404: {"model": ErrorResponse, "description": "남의 세션이거나 없는 세션"}},
+)
+def get_my_session(
     session_id: int,
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """세션 하나와 그 안의 대화 전체.
 
-    이어하기 화면이 과거 맥락을 복원할 때 쓴다.
+    기록 화면의 펼치기와 이어하기 화면이 함께 쓴다.
     남의 세션은 존재 자체를 알려주지 않기 위해 404 로 돌려준다.
     """
     session = db.get(RoleplaySession, session_id)

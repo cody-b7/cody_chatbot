@@ -16,11 +16,29 @@
   const fmt = (s) => new Date(s).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
   const esc = (t) => { const d = document.createElement('div'); d.textContent = t ?? ''; return d.innerHTML; };
 
-  let counts = {};
+  // 로그인이 풀렸으면 로그인 화면으로, 그 밖의 실패는 예외로 올린다
+  async function getJSON(url) {
+    const res = await fetch(url);
+    if (res.status === 401) { location.href = '/login'; throw new Error('unauthorized'); }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+
+  let counts = null;
 
   async function load(scenario) {
-    if (!Object.keys(counts).length) {
-      counts = await fetch('/api/me/corrections/by-scenario').then(r => r.json());
+    try {
+      await render(scenario);
+    } catch {
+      document.getElementById('list').innerHTML =
+        '<li class="empty-row">교정을 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</li>';
+    }
+  }
+
+  async function render(scenario) {
+    if (counts === null) {
+      // 상황별 교정 횟수는 요약 통계에 함께 들어 있다. 필터를 바꿔도 다시 부르지 않는다.
+      counts = (await getJSON('/api/me/stats')).corrections_by_scenario;
     }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
@@ -34,7 +52,7 @@
     );
 
     const url = '/api/me/corrections?limit=100' + (scenario ? '&scenario=' + encodeURIComponent(scenario) : '');
-    const items = await fetch(url).then(r => r.json());
+    const items = await getJSON(url);
 
     document.getElementById('list').innerHTML = items.length
       ? items.map(c => `

@@ -32,7 +32,6 @@ def _add(db, user, scenario, question, correction):
 
 def test_requires_login(client):
     assert client.get("/api/me/corrections").status_code == 401
-    assert client.get("/api/me/corrections/by-scenario").status_code == 401
 
 
 def test_only_corrected_turns(auth_client, db_session, user):
@@ -58,10 +57,8 @@ def test_by_scenario_counts(auth_client, db_session, user):
     _add(db_session, user, "cafe", "q2", "fix")
     _add(db_session, user, "airport", "q3", "fix")
 
-    assert auth_client.get("/api/me/corrections/by-scenario").json() == {
-        "cafe": 2,
-        "airport": 1,
-    }
+    stats = auth_client.get("/api/me/stats").json()
+    assert stats["corrections_by_scenario"] == {"cafe": 2, "airport": 1}
 
 
 def test_excludes_other_users(auth_client, db_session, user):
@@ -73,14 +70,14 @@ def test_excludes_other_users(auth_client, db_session, user):
 
     items = auth_client.get("/api/me/corrections").json()
     assert [i["question"] for i in items] == ["내 말"]
-    assert auth_client.get("/api/me/corrections/by-scenario").json() == {"cafe": 1}
+    assert auth_client.get("/api/me/stats").json()["corrections_by_scenario"] == {"cafe": 1}
 
 
 def test_page_renders(auth_client, user):
     res = auth_client.get("/corrections")
     assert res.status_code == 200
     assert user.username in res.text
-    assert "/api/me/corrections/by-scenario" in res.text
+    assert "/api/me/stats" in res.text
 
 
 def test_page_redirects_browser_when_logged_out(client):

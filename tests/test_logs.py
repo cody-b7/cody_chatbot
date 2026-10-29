@@ -99,3 +99,12 @@ def test_chats_offset_paging(auth_client, db_session, user):
 
     assert len(first) == 2 and len(second) == 2
     assert {r["id"] for r in first}.isdisjoint({r["id"] for r in second})
+
+
+def test_times_are_sent_with_utc_offset(auth_client, db_session, user):
+    """SQLite 는 시간대를 저장하지 않는다. 시간대 없이 내보내면 브라우저가 9시간 이르게 표시한다."""
+    _seed(db_session, user, turns=1)
+
+    row = auth_client.get("/api/me/sessions").json()[0]
+    for key in ("created_at", "last_message_at"):
+        assert row[key].endswith(("+00:00", "Z")), f"{key} 에 시간대가 없다: {row[key]}"
