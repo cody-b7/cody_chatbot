@@ -1,165 +1,170 @@
-"""회원가입 / 로그인 / 로그아웃 테스트."""
+"""회원가입 / 로그인 / 로그아웃 테스트.
+
+성공은 303 리다이렉트(PRG), 실패는 화면을 바로 그리면서 상태코드로 구분한다.
+  형식 오류 422 / 중복·예약 아이디 409 / 로그인 실패 401
+"""
+
+import pytest
 
 from app.models import User
-from app.security import verify_password
+from app.security import hash_password, verify_password
 
+GOOD_PASSWORD = "goodpass1"
+
+
+def _signup(client, username, password=GOOD_PASSWORD):
+    return client.post(
+        "/signup",
+        data={"username": username, "password": password},
+        follow_redirects=False,
+    )
+
+
+def _login(client, username, password):
+    return client.post(
+        "/login",
+        data={"username": username, "password": password},
+        follow_redirects=False,
+    )
+
+
+@pytest.fixture
+def member(db_session) -> User:
+    """비밀번호가 설정된 가입 회원."""
+    u = User(username="member", password_hash=hash_password(GOOD_PASSWORD))
+    db_session.add(u)
+    db_session.commit()
+    return u
+
+
+# ---------- 회원가입 ----------
 
 def test_signup_success(client, db_session):
     """정상 회원가입 시 사용자가 생성되고 로그인 상태가 된다."""
-    response = client.post(
-        "/signup",
-        data={
-            "username": "newuser",
-            "password": "test1234",
-        },
-        follow_redirects=False,
-    )
+    res = _signup(client, "newuser")
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    assert res.status_code == 303
+    assert res.headers["location"] == "/"
 
-    user = (
-        db_session.query(User)
-        .filter(User.username == "newuser")
-        .first()
-    )
-
-    assert user is not None
-    assert user.password_hash != "test1234"
-    assert verify_password("test1234", user.password_hash)
+    user = db_session.query(User).filter(User.username == "newuser").one()
+    assert user.password_hash != GOOD_PASSWORD
+    assert verify_password(GOOD_PASSWORD, user.password_hash)
 
 
-def test_signup_duplicate(client, user):
-    """이미 존재하는 username으로 가입할 수 없다."""
-    response = client.post(
-        "/signup",
-        data={
-            "username": user.username,
-            "password": "test1234",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/signup?error=duplicate"
+def test_signup_stores_normalized_username(client, db_session):
+    _signup(client, "  NewUser ")
+    assert db_session.query(User).filter(User.username == "newuser").count() == 1
 
 
-def test_signup_invalid_username(client):
-    """빈 username은 거부한다."""
-    response = client.post(
-        "/signup",
-        data={
-            "username": "   ",
-            "password": "test1234",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/signup?error=invalid_username"
-
-def test_signup_reserved_admin_username(client):
-    """admin 예약 아이디는 대소문자와 관계없이 가입할 수 없다."""
-    for username in ("admin", "Admin", "ADMIN"):
-        response = client.post(
-            "/signup",
-            data={
-                "username": username,
-                "password": "test1234",
-            },
-            follow_redirects=False,
-        )
-
-        assert response.status_code == 303
-        assert (
-            response.headers["location"]
-            == "/signup?error=reserved_username"
-        )
-
-def test_signup_invalid_password(client):
-    """빈 비밀번호는 거부한다."""
-    response = client.post(
-        "/signup",
-        data={
-            "username": "newuser",
-            "password": "",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/signup?error=invalid_password"
+def test_signup_duplicate(client, member):
+    res = _signup(client, member.username)
+    assert res.status_code == 409
+    assert "이미 쓰고 있는 아이디" in res.text
 
 
-def test_login_success(client, db_session):
-    """올바른 계정으로 로그인할 수 있다."""
-    from app.security import hash_password
+@pytest.mark.parametrize("variant", ["MEMBER", "Member", " member ", "ｍｅｍｂｅｒ"])
+def test_signup_duplicate_lookalike(client, db_session, member, variant):
+    """대소문자·공백·전각 문자만 다른 아이디로 다시 가입할 수 없다."""
+    res = _signup(client, variant)
+    assert res.status_code == 409
+    assert db_session.query(User).count() == 1
 
-    user = User(
-        username="loginuser",
-        password_hash=hash_password("test1234"),
-    )
-    db_session.add(user)
+
+def test_signup_duplicate_of_legacy_mixed_case_account(client, db_session):
+    """정규화 이전에 대문자로 가입한 계정도 중복으로 잡는다."""
+    db_session.add(User(username="Legacy", password_hash=hash_password(GOOD_PASSWORD)))
     db_session.commit()
 
-    response = client.post(
-        "/login",
-        data={
-            "username": "loginuser",
-            "password": "test1234",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    assert _signup(client, "legacy").status_code == 409
 
 
-def test_login_wrong_password(client, db_session):
-    """비밀번호가 틀리면 bad_credentials로 처리한다."""
-    from app.security import hash_password
+def test_signup_same_username_twice_creates_one_user(client, db_session):
+    assert _signup(client, "twice").status_code == 303
+    client.cookies.clear()
+    assert _signup(client, "twice", "otherpass2").status_code == 409
+    assert db_session.query(User).filter(User.username == "twice").count() == 1
 
-    user = User(
-        username="loginuser",
-        password_hash=hash_password("correct-password"),
-    )
-    db_session.add(user)
+
+@pytest.mark.parametrize("username", ["admin", "Admin", "ADMIN", "root"])
+def test_signup_reserved_username(client, username):
+    res = _signup(client, username)
+    assert res.status_code == 409
+    assert "쓸 수 없는 아이디" in res.text
+
+
+@pytest.mark.parametrize("username", ["   ", "ab", "한글아이디", "has space"])
+def test_signup_invalid_username(client, username):
+    assert _signup(client, username).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "password",
+    ["", "short1", "abcdefgh", "12345678", "pass word1", "newuser99", "a1" * 37],
+    ids=["빈값", "짧음", "숫자없음", "영문없음", "공백", "아이디포함", "72바이트초과"],
+)
+def test_signup_rejects_weak_password(client, db_session, password):
+    res = _signup(client, "newuser", password)
+    assert res.status_code == 422
+    assert db_session.query(User).filter(User.username == "newuser").count() == 0
+
+
+def test_signup_failure_keeps_entered_username(client):
+    """실패해도 입력한 아이디는 남겨 둔다 (다시 치지 않게)."""
+    res = _signup(client, "keepme", "short1")
+    assert 'value="keepme"' in res.text
+
+
+# ---------- 로그인 ----------
+
+def test_login_success(client, member):
+    res = _login(client, "member", GOOD_PASSWORD)
+    assert res.status_code == 303
+    assert res.headers["location"] == "/"
+
+
+def test_login_is_case_insensitive_for_username(client, member):
+    assert _login(client, "MEMBER", GOOD_PASSWORD).status_code == 303
+
+
+def test_login_wrong_password(client, member):
+    res = _login(client, "member", "wrongpass1")
+    assert res.status_code == 401
+    assert "아이디나 비밀번호가 맞지 않습니다" in res.text
+
+
+def test_login_unknown_user_looks_the_same(client):
+    """없는 아이디도 틀린 비밀번호와 같은 응답이어야 가입 여부를 알아낼 수 없다."""
+    res = _login(client, "does_not_exist", GOOD_PASSWORD)
+    assert res.status_code == 401
+    assert "아이디나 비밀번호가 맞지 않습니다" in res.text
+
+
+def test_login_rejects_password_sharing_first_72_bytes(client, db_session):
+    """앞 72바이트만 같고 뒤가 다른 비밀번호로는 로그인되지 않는다."""
+    password = "a1" * 36
+    db_session.add(User(username="longpw", password_hash=hash_password(password)))
     db_session.commit()
 
-    response = client.post(
-        "/login",
-        data={
-            "username": "loginuser",
-            "password": "wrong-password",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/login?error=bad_credentials"
+    assert _login(client, "longpw", password).status_code == 303
+    client.cookies.clear()
+    assert _login(client, "longpw", password + "xyz").status_code == 401
 
 
-def test_login_unknown_user(client):
-    """존재하지 않는 사용자도 bad_credentials로 처리한다."""
-    response = client.post(
-        "/login",
-        data={
-            "username": "does-not-exist",
-            "password": "test1234",
-        },
-        follow_redirects=False,
-    )
+def test_login_does_not_set_session_on_failure(client, member):
+    _login(client, "member", "wrongpass1")
+    res = client.get("/api/me/stats")
+    assert res.status_code == 401
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/login?error=bad_credentials"
 
+# ---------- 로그아웃 ----------
 
 def test_logout(auth_client):
-    """로그아웃 후 로그인 페이지로 이동한다."""
-    response = auth_client.post(
-        "/logout",
-        follow_redirects=False,
-    )
+    res = auth_client.post("/logout", follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"] == "/login"
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+
+def test_failed_auth_pages_do_not_show_logged_in_menu(client, member):
+    """입력한 아이디를 다시 채워 줄 때, 화면이 로그인한 것처럼 메뉴를 띄우면 안 된다."""
+    for res in (_signup(client, "keepme", "short1"), _login(client, "member", "wrongpass1")):
+        assert 'action="/logout"' not in res.text

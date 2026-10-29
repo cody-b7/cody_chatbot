@@ -124,6 +124,7 @@ h1, h2 {
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 14px; font-weight: 500; color: var(--ink-soft); }
+.field-hint { margin: 0; font-size: 13px; color: var(--ink-faint); }
 
 input[type="text"], input[type="password"], textarea {
   font: inherit;
