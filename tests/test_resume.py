@@ -2,7 +2,7 @@
 
 검증 대상
   - 세션 상세가 대화 전체를 순서대로 돌려주는가
-  - 남의 세션은 존재조차 알려주지 않는가 (404)
+  - 남의 세션은 403, 없는 세션은 404 인가
   - 이어쓴 대화가 같은 세션에 쌓이고, 문맥이 유지되는가
   - 이어할 때 상황(scenario)이 세션 값으로 고정되는가
 """
@@ -36,7 +36,13 @@ def test_session_detail_hides_other_users(auth_client, db_session, user):
     db_session.commit()
     db_session.refresh(stolen)
 
-    assert auth_client.get(f"/api/me/sessions/{stolen.id}").status_code == 404
+    res = auth_client.get(f"/api/me/sessions/{stolen.id}")
+    assert res.status_code == 403
+    assert "turns" not in res.json()  # 남의 대화 내용은 나오지 않는다
+
+
+def test_session_detail_unknown_returns_404(auth_client):
+    assert auth_client.get("/api/me/sessions/999999").status_code == 404
 
 
 def test_session_detail_requires_login(client):

@@ -218,7 +218,10 @@ def _mark_deprecated(response: Response, api: str, user: User) -> None:
     "/sessions/{session_id}",
     response_model=SessionDetail,
     summary="세션 하나의 대화 전체",
-    responses={404: {"model": ErrorResponse, "description": "남의 세션이거나 없는 세션"}},
+    responses={
+        403: {"model": ErrorResponse, "description": "남의 세션"},
+        404: {"model": ErrorResponse, "description": "없는 세션"},
+    },
 )
 def get_my_session(
     session_id: int,
@@ -228,11 +231,13 @@ def get_my_session(
     """세션 하나와 그 안의 대화 전체.
 
     기록 화면의 펼치기와 이어하기 화면이 함께 쓴다.
-    남의 세션은 존재 자체를 알려주지 않기 위해 404 로 돌려준다.
+    남의 세션은 403 (로그인은 했지만 권한이 없음). /api/chat 과 같은 기준이다.
     """
     session = db.get(RoleplaySession, session_id)
-    if session is None or session.user_id != user.id:
+    if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "세션을 찾을 수 없습니다.")
+    if session.user_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "이 대화에 접근할 권한이 없습니다.")
 
     turns = (
         db.query(ChatLog)
