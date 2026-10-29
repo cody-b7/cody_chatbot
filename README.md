@@ -196,7 +196,16 @@ AI 호출이 시간 초과되면 HTTP `504`, 그 밖의 AI 장애는 HTTP `503`(
 | 예약 아이디 | `admin`, `administrator`, `root`, `system` 은 가입 불가 (관리자 권한은 `is_admin` 으로만 부여) |
 | 비밀번호 | 8자 이상, 72바이트 이하, 영문자와 숫자를 각각 1개 이상, 공백 불가, 아이디 포함 불가 |
 | 비교 방식 | bcrypt 는 72바이트까지만 보므로, 잘라서 비교하지 않고 72바이트를 넘는 입력은 거부 (앞부분만 같은 다른 비밀번호로 로그인되는 것을 막음) |
-| 로그인 실패 | 없는 아이디와 틀린 비밀번호를 같은 문구로 안내 (가입 여부를 알 수 없게) |
+| 로그인 실패 | 없는 아이디와 틀린 비밀번호를 같은 문구와 비슷한 응답 시간으로 안내 (가입 여부를 알 수 없게) |
+| 기존 계정 | 규칙이 생기기 전에 가입한 계정은 원래 아이디 그대로 로그인됩니다. `Tester`와 `tester`가 따로 있어도 각자 로그인되고, 입력과 정확히 같은 아이디가 없을 때만 대소문자를 무시하고 찾습니다 |
+
+### 배포 전에 열어 둔 화면과의 호환
+
+배포 직후에도 사용자의 브라우저에는 이전 버전 화면이 열려 있을 수 있습니다.
+
+- 이전 화면이 부르는 요청은 당분간 그대로 지원합니다: `GET /api/me/chats?session_id=`, `GET /api/me/corrections/by-scenario`. 응답에 `Deprecation: true` 헤더가 붙고 `deprecated_api_called` 로그가 남습니다. 이 로그가 한동안 없으면 제거합니다.
+- 모든 응답에 `X-App-Build`(배포된 커밋)를 붙입니다. 화면은 자기 빌드와 다르면 상단에 새로고침 안내를 띄웁니다.
+- CSS 주소에 `?v=<빌드>`를 붙여, 배포 후 브라우저가 이전 CSS 캐시를 쓰지 않게 합니다.
 
 ---
 
@@ -536,7 +545,7 @@ INFO  2026-10-29T14:02:13+09:00 cody.request request_id=3f9a1c2b7d10 request_don
 | 로거 | 이벤트 | 레벨 |
 |---|---|---|
 | `cody.app` | `app_started`, `app_stopped` | INFO |
-| `cody.request` | `request_received`, `request_done` | INFO |
+| `cody.request` | `request_received`, `request_done`, `deprecated_api_called` | INFO |
 | `cody.request` | `unhandled_error` (스택트레이스 포함) | ERROR |
 | `cody.auth` | `signup_success`, `signup_failed`, `login_success`, `login_failed`, `logout`, `stale_session_cleared` | INFO |
 | `cody.ai` | `ai_call_start`, `ai_call_success`, `ai_fallback_start` | INFO |
