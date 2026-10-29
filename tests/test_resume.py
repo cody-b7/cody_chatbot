@@ -60,7 +60,7 @@ def test_resume_keeps_same_session_and_context(auth_client, db_session):
     assert second["session_id"] == sid
 
     session = db_session.get(RoleplaySession, sid)
-    messages = context.build_messages(db_session, session, "다음 발화")
+    messages = context.build_prompt_messages(db_session, session, "다음 발화")
     assert any(m["content"] == "I want coffee" for m in messages)
 
 

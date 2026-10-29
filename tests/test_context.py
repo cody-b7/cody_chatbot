@@ -43,7 +43,7 @@ def _session(db, user, scenario="hotel"):
 
 def test_prompt_carries_role_and_goal(db_session, user):
     session = _session(db_session, user, "hotel")
-    system = context.build_messages(db_session, session, "hi")[0]["content"]
+    system = context.build_prompt_messages(db_session, session, "hi")[0]["content"]
 
     hotel = scenarios.get("hotel")
     assert hotel.role in system
@@ -65,7 +65,7 @@ def test_only_recent_turns_are_sent(db_session, user, monkeypatch):
         )
     db_session.commit()
 
-    contents = [m["content"] for m in context.build_messages(db_session, session, "지금")]
+    contents = [m["content"] for m in context.build_prompt_messages(db_session, session, "지금")]
     assert "q4" in contents and "q3" in contents  # 최근 2턴
     assert "q0" not in contents and "q2" not in contents
 
@@ -84,6 +84,6 @@ def test_failed_turns_are_excluded(db_session, user):
     )
     db_session.commit()
 
-    contents = [m["content"] for m in context.build_messages(db_session, session, "지금")]
+    contents = [m["content"] for m in context.build_prompt_messages(db_session, session, "지금")]
     assert "정상 질문" in contents
     assert "실패한 질문" not in contents
