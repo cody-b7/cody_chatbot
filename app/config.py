@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     SESSION_SECRET_KEY: str
     DATABASE_URL: str = "sqlite:///./data/chatbot.db"
     LOG_LEVEL: str = "INFO"
+    # 로그 시각의 시간대 (UTC 기준 시차). 서버 시계는 UTC 라서, 지정하지 않으면
+    # 한국 시간 오후 4시 요청이 07:00 으로 찍혀 찾기 어렵다. 기본은 한국 시간(+9).
+    LOG_UTC_OFFSET_HOURS: int = 9
 
     # --- 입력 검증 ---
     MAX_MESSAGE_LENGTH: int = 1000
