@@ -62,7 +62,7 @@ def test_context_carries_previous_turn(auth_client, db_session):
     assert second.json()["session_id"] == session_id  # 같은 세션을 이어간다
 
     session = db_session.get(RoleplaySession, session_id)
-    messages = context.build_messages(db_session, session, "next turn")
+    messages = context.build_prompt_messages(db_session, session, "next turn")
     assert messages[0]["role"] == "system"
     assert any(m["content"] == "Hello there" for m in messages)
 
@@ -105,3 +105,31 @@ def test_my_chats_returns_only_own_logs(auth_client, db_session, user):
     assert res.status_code == 200
     questions = [row["question"] for row in res.json()]
     assert questions == ["mine"]
+
+
+def test_db_save_failure_still_returns_reply(auth_client, monkeypatch):
+    """기록 저장에 실패해도 사용자는 답을 받고, saved=False 로 알 수 있다."""
+    from app.routers import chat
+
+    monkeypatch.setattr(chat, "_save_chat_log", lambda db, log: False)
+    res = auth_client.post("/api/chat", json={"message": "hello", "scenario": "cafe"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["reply"]
+    assert body["saved"] is False
+    assert body["chat_id"] is None
+
+
+def test_chat_log_api_shows_failed_turns(auth_client, db_session, user):
+    """로그 조회 API 는 추적용이라 실패한 턴도 error_code 와 함께 보여준다."""
+    session = RoleplaySession(user_id=user.id, scenario="cafe")
+    db_session.add(session)
+    db_session.commit()
+    db_session.add(
+        ChatLog(user_id=user.id, session_id=session.id, question="q", answer="", error_code="AI_TIMEOUT")
+    )
+    db_session.commit()
+
+    rows = auth_client.get("/api/me/chats").json()
+    assert rows[0]["error_code"] == "AI_TIMEOUT"

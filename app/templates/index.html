@@ -208,12 +208,9 @@
     addTheirs(data.reply);
   }
 
+  // 서버의 오류 응답은 모두 { error, message } 형식이다 (422·503·504 등)
   function problemMessage(res, data) {
     if (!res) return '인터넷 연결을 확인한 뒤 다시 보내 주세요.';
-    if (res.status === 422) {
-      const msg = data?.detail?.[0]?.msg;
-      return msg ? msg.replace(/^Value error, /, '') : '보낸 내용을 확인해 주세요.';
-    }
     return data?.message || '답을 받지 못했습니다. 잠시 뒤 다시 보내 주세요.';
   }
 

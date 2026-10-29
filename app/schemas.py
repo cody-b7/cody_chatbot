@@ -1,9 +1,10 @@
 """요청/응답 계약. 이 파일이 곧 API 명세의 원본이다."""
 
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 from app.config import settings
 from app.scenarios import KEYS as SCENARIOS  # 정의는 app/scenarios.py 한 곳에만
@@ -19,6 +20,23 @@ def _strip_control_chars(text: str) -> str:
     return "".join(
         ch for ch in text if ch in keep or unicodedata.category(ch) != "Cc"
     )
+
+
+def _as_utc(value: datetime) -> datetime:
+    """시간대 없는 시각을 UTC 로 표시한다.
+
+    DB 에는 UTC 로 저장하지만 SQLite 는 시간대 정보를 보관하지 않아서,
+    읽어 오면 "2026-10-29T07:57:00" 처럼 시간대가 빠진다. 그대로 내보내면
+    브라우저가 이를 한국 시간으로 해석해 9시간 이르게 표시한다.
+    "+00:00" 을 붙여 내보내면 브라우저가 사용자 시간대로 바르게 바꿔 보여준다.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+# API 로 나가는 모든 시각에 쓴다
+UtcDatetime = Annotated[datetime, AfterValidator(_as_utc)]
 
 
 class ChatRequest(BaseModel):
@@ -51,8 +69,22 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "session_id": 12,
+                "chat_id": 87,
+                "saved": True,
+                "scenario": "cafe",
+                "reply": "Sure! What size would you like?",
+                "correction": '"I want coffee" 보다 "Could I get a coffee?" 가 더 자연스러워요.',
+            }
+        }
+    )
+
     session_id: int
-    chat_id: int
+    chat_id: int | None             # 기록 저장에 실패하면 None
+    saved: bool                     # 기록이 DB 에 저장됐는지
     scenario: str                   # 이어하기 때 클라이언트가 상황을 알 수 있게
     reply: str                      # 상대역의 응답
     correction: str | None = None   # 표현 교정 (없을 수 있음)
@@ -66,7 +98,14 @@ class ChatLogItem(BaseModel):
     question: str
     answer: str
     correction: str | None
-    created_at: datetime
+    created_at: UtcDatetime
+
+
+class ChatLogEntry(ChatLogItem):
+    """로그 조회용 한 줄. 실패한 턴도 error_code 와 함께 그대로 보여준다."""
+
+    error_code: str | None
+    latency_ms: int | None
 
 
 class CorrectionItem(BaseModel):
@@ -80,7 +119,7 @@ class CorrectionItem(BaseModel):
     scenario: str
     question: str
     correction: str
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class SessionSummary(BaseModel):
@@ -88,10 +127,10 @@ class SessionSummary(BaseModel):
 
     id: int
     scenario: str
-    created_at: datetime
+    created_at: UtcDatetime
     turn_count: int
     correction_count: int
-    last_message_at: datetime | None
+    last_message_at: UtcDatetime | None
 
 
 class SessionDetail(BaseModel):
@@ -99,7 +138,7 @@ class SessionDetail(BaseModel):
 
     id: int
     scenario: str
-    created_at: datetime
+    created_at: UtcDatetime
     turns: list[ChatLogItem]
 
 
@@ -111,8 +150,18 @@ class LearningStats(BaseModel):
     total_corrections: int
     error_count: int
     avg_latency_ms: int | None
+    # 상황별 교정 횟수 (많은 순). 교정 화면의 필터에 쓴다.
+    corrections_by_scenario: dict[str, int]
 
 
 class ErrorResponse(BaseModel):
-    error: str    # AI_TIMEOUT / AI_ERROR / INVALID_INPUT
+    """모든 오류 응답의 공통 형식. 화면은 message 만 보여주면 된다."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"error": "AI_TIMEOUT", "message": "현재 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요."}
+        }
+    )
+
+    error: str    # 오류 코드. README 의 상태코드 표 참고
     message: str  # 사용자에게 그대로 보여줄 안내 문구
