@@ -124,6 +124,7 @@ h1, h2 {
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 14px; font-weight: 500; color: var(--ink-soft); }
+.field-hint { margin: 0; font-size: 13px; color: var(--ink-faint); }
 
 input[type="text"], input[type="password"], textarea {
   font: inherit;
@@ -427,4 +428,30 @@ tr.turns td { background: var(--surface); padding: 18px; }
 
 @media (prefers-reduced-motion: reduce) {
   .typing i { animation: none; opacity: .8; }
+}
+
+/* 배포 전에 열어 둔 화면에 띄우는 새로고침 안내 */
+.update-notice {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  padding: 10px 16px;
+  background: var(--marker);
+  color: var(--marker-ink);
+  font-size: 14px;
+}
+.update-notice button {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
 }

@@ -31,17 +31,28 @@
   const fmt = (s) => s ? new Date(s).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
   const esc = (t) => { const d = document.createElement('div'); d.textContent = t ?? ''; return d.innerHTML; };
 
+  // 로그인이 풀렸으면 로그인 화면으로, 그 밖의 실패는 예외로 올린다
+  async function getJSON(url) {
+    const res = await fetch(url);
+    if (res.status === 401) { location.href = '/login'; throw new Error('unauthorized'); }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+
   async function load() {
-    const [stats, sessions] = await Promise.all([
-      fetch('/api/me/stats').then(r => r.json()),
-      fetch('/api/me/sessions').then(r => r.json()),
-    ]);
+    let stats, sessions;
+    try {
+      [stats, sessions] = await Promise.all([getJSON('/api/me/stats'), getJSON('/api/me/sessions')]);
+    } catch {
+      document.getElementById('sessions').innerHTML =
+        '<tr><td colspan="6" class="empty-row">기록을 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</td></tr>';
+      return;
+    }
 
     document.getElementById('tally').innerHTML = [
       [stats.total_sessions, '연습한 대화'],
       [stats.total_turns, '주고받은 말'],
       [stats.total_corrections, '받은 교정'],
-      [stats.avg_latency_ms == null ? '-' : (stats.avg_latency_ms / 1000).toFixed(1) + '초', '평균 응답 시간'],
     ].map(([value, name]) => `<div><b>${esc(String(value))}</b><span>${name}</span></div>`).join('');
 
     const tbody = document.getElementById('sessions');
@@ -80,13 +91,22 @@
     row.setAttribute('aria-expanded', String(!panel.hidden));
     if (panel.hidden || loaded.has(id)) return;
 
-    const chats = await fetch('/api/me/chats?session_id=' + id + '&limit=200').then(r => r.json());
+    // 이어하기 화면과 같은 API 를 쓴다 (세션 하나의 대화, 오래된 순)
+    const cell = panel.firstElementChild;
+    let detail;
+    try {
+      detail = await getJSON('/api/me/sessions/' + encodeURIComponent(id));
+    } catch {
+      cell.textContent = '대화를 불러오지 못했습니다. 다시 눌러 보세요.';
+      panel.hidden = true;
+      row.setAttribute('aria-expanded', 'false');
+      return;
+    }
     loaded.add(id);
 
-    const cell = panel.firstElementChild;
-    if (!chats.length) { cell.textContent = '이 대화에는 주고받은 말이 없습니다.'; return; }
+    if (!detail.turns.length) { cell.textContent = '이 대화에는 주고받은 말이 없습니다.'; return; }
 
-    cell.innerHTML = chats.reverse().map(c => `
+    cell.innerHTML = detail.turns.map(c => `
       <div class="pair">
         <p class="said">${esc(c.question)}</p>
         <p class="reply">${esc(c.answer)}</p>

@@ -41,18 +41,18 @@ def live_ai(monkeypatch):
 
 
 def _fail_with(monkeypatch, *errors):
-    """_call 이 호출될 때마다 errors 를 순서대로 뱉는다. 호출 기록을 돌려준다."""
+    """_request_completion 이 호출될 때마다 errors 를 순서대로 뱉는다. 호출 기록을 돌려준다."""
     calls: list[str] = []
     it = iter(errors)
 
-    def fake(model, messages, request_id):
+    def fake(model, messages):
         calls.append(model)
         outcome = next(it)
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
 
-    monkeypatch.setattr(ai, "_call", fake)
+    monkeypatch.setattr(ai, "_request_completion", fake)
     return calls
 
 
@@ -61,7 +61,7 @@ def _fail_with(monkeypatch, *errors):
 def test_timeout_returns_dedicated_code(live_ai, monkeypatch):
     _fail_with(monkeypatch, _timeout())
     with pytest.raises(AIError) as exc:
-        ai.generate([{"role": "user", "content": "hi"}])
+        ai.generate_ai_reply([{"role": "user", "content": "hi"}])
     assert exc.value.code == "AI_TIMEOUT"
     assert exc.value.message  # 사용자에게 보여줄 문구가 있어야 한다
 
@@ -71,7 +71,7 @@ def test_timeout_does_not_fall_back(live_ai, monkeypatch):
     monkeypatch.setattr(settings, "AI_FALLBACK_MODEL", "backup-model")
     calls = _fail_with(monkeypatch, _timeout())
     with pytest.raises(AIError):
-        ai.generate([{"role": "user", "content": "hi"}])
+        ai.generate_ai_reply([{"role": "user", "content": "hi"}])
     assert len(calls) == 1, "타임아웃인데 폴백을 시도했다"
 
 
@@ -82,10 +82,10 @@ def test_falls_back_on_provider_error(live_ai, monkeypatch, error):
     monkeypatch.setattr(settings, "AI_FALLBACK_MODEL", "backup-model")
     calls = _fail_with(monkeypatch, error, '{"reply": "ok", "correction": null}')
 
-    reply, correction, latency = ai.generate([{"role": "user", "content": "hi"}])
-    assert reply == "ok"
-    assert correction is None
-    assert latency >= 0
+    result = ai.generate_ai_reply([{"role": "user", "content": "hi"}])
+    assert result.reply == "ok"
+    assert result.correction is None
+    assert result.latency_ms >= 0
     assert calls == [settings.AI_MODEL, "backup-model"]
 
 
@@ -93,7 +93,7 @@ def test_fallback_failure_surfaces_error(live_ai, monkeypatch):
     monkeypatch.setattr(settings, "AI_FALLBACK_MODEL", "backup-model")
     _fail_with(monkeypatch, _connection(), _connection())
     with pytest.raises(AIError) as exc:
-        ai.generate([{"role": "user", "content": "hi"}])
+        ai.generate_ai_reply([{"role": "user", "content": "hi"}])
     assert exc.value.code == "AI_ERROR"
 
 
@@ -101,7 +101,7 @@ def test_no_fallback_configured(live_ai, monkeypatch):
     monkeypatch.setattr(settings, "AI_FALLBACK_MODEL", "")
     calls = _fail_with(monkeypatch, _connection())
     with pytest.raises(AIError):
-        ai.generate([{"role": "user", "content": "hi"}])
+        ai.generate_ai_reply([{"role": "user", "content": "hi"}])
     assert len(calls) == 1
 
 
@@ -111,14 +111,14 @@ def test_unexpected_error_is_absorbed(live_ai, monkeypatch):
     """생각지 못한 예외가 그대로 터져나가면 서비스가 500 으로 죽는다."""
     _fail_with(monkeypatch, RuntimeError("뭔가 잘못됨"))
     with pytest.raises(AIError) as exc:
-        ai.generate([{"role": "user", "content": "hi"}])
+        ai.generate_ai_reply([{"role": "user", "content": "hi"}])
     assert exc.value.code == "AI_ERROR"
 
 
 def test_empty_response_is_an_error(live_ai, monkeypatch):
     _fail_with(monkeypatch, "")
     with pytest.raises(AIError):
-        ai.generate([{"role": "user", "content": "hi"}])
+        ai.generate_ai_reply([{"role": "user", "content": "hi"}])
 
 
 def test_empty_reply_in_valid_json_is_an_error(live_ai, monkeypatch):
@@ -129,46 +129,58 @@ def test_empty_reply_in_valid_json_is_an_error(live_ai, monkeypatch):
     """
     _fail_with(monkeypatch, '{"reply": "", "correction": "고칠 것"}')
     with pytest.raises(AIError) as exc:
-        ai.generate([{"role": "user", "content": "hi"}])
+        ai.generate_ai_reply([{"role": "user", "content": "hi"}])
     assert exc.value.code == "AI_ERROR"
 
 
 # ---------- 응답 파싱 ----------
 
 def test_parses_json():
-    assert ai._parse('{"reply": "Hi!", "correction": "고칠 것"}') == ("Hi!", "고칠 것")
+    assert ai._parse_reply_json('{"reply": "Hi!", "correction": "고칠 것"}') == ("Hi!", "고칠 것")
 
 
 def test_null_correction_becomes_none():
-    assert ai._parse('{"reply": "Hi!", "correction": null}') == ("Hi!", None)
+    assert ai._parse_reply_json('{"reply": "Hi!", "correction": null}') == ("Hi!", None)
 
 
 def test_empty_reply_is_not_mistaken_for_plain_text():
     """JSON 원문이 대사로 새어나가지 않아야 한다."""
-    reply, _ = ai._parse('{"reply": "", "correction": "x"}')
+    reply, _ = ai._parse_reply_json('{"reply": "", "correction": "x"}')
     assert reply == ""
     assert "correction" not in reply
 
 
 def test_non_json_falls_back_to_plain_text():
     """모델이 규칙을 어겨도 대화는 이어져야 한다."""
-    reply, correction = ai._parse("Sure, what size?")
+    reply, correction = ai._parse_reply_json("Sure, what size?")
     assert reply == "Sure, what size?"
     assert correction is None
 
 
 # ---------- 라우터: 실패해도 죽지 않고, 기록은 남는다 ----------
 
-def test_chat_returns_503_with_message(auth_client, monkeypatch):
+def test_timeout_returns_504_with_message(auth_client, monkeypatch):
     monkeypatch.setattr(settings, "AI_MOCK", False)
     _fail_with(monkeypatch, _timeout())
 
     res = auth_client.post("/api/chat", json={"message": "hello", "scenario": "cafe"})
-    assert res.status_code == 503  # 500 이 아니다 = 서비스가 죽지 않았다
+    assert res.status_code == 504  # 500 이 아니다 = 서비스가 죽지 않았다
 
     body = res.json()
     assert body["error"] == "AI_TIMEOUT"
     assert body["message"], "사용자에게 보여줄 안내가 없다"
+
+
+def test_provider_error_returns_503_with_retry_after(auth_client, monkeypatch):
+    """게이트웨이 장애는 503. 언제 다시 시도하면 되는지 Retry-After 로 알려준다."""
+    monkeypatch.setattr(settings, "AI_MOCK", False)
+    monkeypatch.setattr(settings, "AI_FALLBACK_MODEL", "")
+    _fail_with(monkeypatch, _status())
+
+    res = auth_client.post("/api/chat", json={"message": "hello", "scenario": "cafe"})
+    assert res.status_code == 503
+    assert res.headers["retry-after"]
+    assert res.json()["error"] == "AI_ERROR"
 
 
 def test_failed_turn_is_recorded_for_tracing(auth_client, db_session, user, monkeypatch):

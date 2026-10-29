@@ -37,7 +37,7 @@ Respond with JSON only, no markdown fence:
 {{"reply": "<your in-character line>", "correction": "<한국어 교정 or null>"}}"""
 
 
-def build_messages(
+def build_prompt_messages(
     db: DbSession,
     session: RoleplaySession,
     message: str,

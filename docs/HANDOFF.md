@@ -327,7 +327,7 @@ Fallback : gpt-5-mini
 ```text
 GET /api/me/chats
 GET /api/me/corrections
-GET /api/me/corrections/by-scenario
+(상황별 교정 횟수는 /api/me/stats 의 corrections_by_scenario 로 통합)
 GET /api/me/sessions
 GET /api/me/sessions/{session_id}
 GET /api/me/stats

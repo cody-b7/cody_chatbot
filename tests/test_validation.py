@@ -94,3 +94,11 @@ def test_invalid_input_is_not_saved(auth_client, db_session, user):
 
     auth_client.post("/api/chat", json={"message": "   ", "scenario": "cafe"})
     assert db_session.query(ChatLog).filter(ChatLog.user_id == user.id).count() == 0
+
+
+def test_validation_error_uses_common_error_format(auth_client):
+    """422 도 다른 오류와 같은 {error, message} 형식이어야 화면이 그대로 보여줄 수 있다."""
+    res = auth_client.post("/api/chat", json={"message": "a" * 5000, "scenario": "cafe"})
+    body = res.json()
+    assert body["error"] == "INVALID_INPUT"
+    assert body["message"] == f"메시지는 {settings.MAX_MESSAGE_LENGTH}자를 넘을 수 없습니다."
