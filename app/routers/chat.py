@@ -34,10 +34,12 @@ def _get_or_create_session(
 ) -> RoleplaySession:
     if session_id is not None:
         session = db.get(RoleplaySession, session_id)
-        # 남의 세션을 이어쓰지 못하게 소유자를 확인한다.
-        # 403 이 아니라 404 — 남의 세션이 존재한다는 사실 자체를 알려주지 않는다.
-        if session is None or session.user_id != user.id:
+        if session is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "세션을 찾을 수 없습니다.")
+        # 남의 세션을 이어쓰지 못하게 소유자를 확인한다.
+        # 로그인은 했지만 이 세션에 대한 권한이 없으므로 403 (인증 401 과 구분되는 인가 실패)
+        if session.user_id != user.id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "이 대화에 접근할 권한이 없습니다.")
         return session
 
     session = RoleplaySession(user_id=user.id, scenario=scenario)
@@ -53,7 +55,8 @@ def _get_or_create_session(
     summary="상대역에게 말하고 응답과 교정을 받는다",
     responses={
         401: {"model": ErrorResponse, "description": "로그인하지 않음"},
-        404: {"model": ErrorResponse, "description": "남의 세션이거나 없는 세션"},
+        403: {"model": ErrorResponse, "description": "남의 세션"},
+        404: {"model": ErrorResponse, "description": "없는 세션"},
         422: {"model": ErrorResponse, "description": "입력 검증 실패 (빈 입력, 길이 초과, 미지원 상황)"},
         503: {"model": ErrorResponse, "description": "AI 게이트웨이 장애 (Retry-After 헤더 포함)"},
         504: {"model": ErrorResponse, "description": "AI 응답 시간 초과"},

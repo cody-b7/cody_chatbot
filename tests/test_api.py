@@ -79,6 +79,14 @@ def test_cannot_use_someone_elses_session(auth_client, db_session, user):
         "/api/chat",
         json={"message": "hi", "scenario": "cafe", "session_id": stolen.id},
     )
+    assert res.status_code == 403
+    assert res.json()["error"] == "FORBIDDEN"
+
+
+def test_unknown_session_returns_404(auth_client):
+    res = auth_client.post(
+        "/api/chat", json={"message": "hi", "scenario": "cafe", "session_id": 999999}
+    )
     assert res.status_code == 404
 
 
