@@ -168,3 +168,64 @@ def test_failed_auth_pages_do_not_show_logged_in_menu(client, member):
     """입력한 아이디를 다시 채워 줄 때, 화면이 로그인한 것처럼 메뉴를 띄우면 안 된다."""
     for res in (_signup(client, "keepme", "short1"), _login(client, "member", "wrongpass1")):
         assert 'action="/logout"' not in res.text
+
+
+# ---------- 정규화 이전에 가입한 계정 ----------
+
+def _legacy(db_session, username, password):
+    """정규화 규칙이 생기기 전에 가입한 계정 (아이디가 그대로 저장돼 있음)."""
+    u = User(username=username, password_hash=hash_password(password))
+    db_session.add(u)
+    db_session.commit()
+    return u
+
+
+def test_legacy_accounts_differing_only_in_case_both_log_in(client, db_session):
+    """Tester 와 tester 가 따로 있으면 각자 원래 아이디와 비밀번호로 로그인돼야 한다."""
+    upper = _legacy(db_session, "Tester", "upperpass1")
+    lower = _legacy(db_session, "tester", "lowerpass2")
+
+    res = _login(client, "Tester", "upperpass1")
+    assert res.status_code == 303
+    assert client.get("/api/me/stats").status_code == 200
+    assert _whoami(client, db_session) == upper.id
+
+    client.cookies.clear()
+    assert _login(client, "tester", "lowerpass2").status_code == 303
+    assert _whoami(client, db_session) == lower.id
+
+
+def test_legacy_account_with_exact_id_does_not_fall_through_to_other_case(client, db_session):
+    """원래 아이디가 있는 계정은 그 계정의 비밀번호로만 로그인된다."""
+    _legacy(db_session, "Tester", "upperpass1")
+    _legacy(db_session, "tester", "lowerpass2")
+    assert _login(client, "Tester", "lowerpass2").status_code == 401
+
+
+def test_legacy_fullwidth_account_logs_in_with_original_id(client, db_session):
+    _legacy(db_session, "ｔｅｓｔｅｒ", "widepass1")
+    assert _login(client, "ｔｅｓｔｅｒ", "widepass1").status_code == 303
+
+
+def test_legacy_mixed_case_account_logs_in_with_other_case(client, db_session):
+    """원래 아이디와 정확히 같은 계정이 없으면 대소문자를 무시하고 찾는다."""
+    _legacy(db_session, "Legacy", "legacypass1")
+    assert _login(client, "legacy", "legacypass1").status_code == 303
+
+
+def test_case_insensitive_fallback_picks_account_by_password(client, db_session):
+    """대소문자만 다른 계정이 여럿이고 입력이 둘 다와 다르면, 비밀번호가 맞는 계정으로."""
+    _legacy(db_session, "Tester", "upperpass1")
+    lower = _legacy(db_session, "tester", "lowerpass2")
+    assert _login(client, "TESTER", "lowerpass2").status_code == 303
+    assert _whoami(client, db_session) == lower.id
+
+
+def _whoami(client, db_session) -> int:
+    """지금 쿠키로 로그인된 사용자 id. 세션 하나를 만들어 소유자를 확인한다."""
+    from app.models import RoleplaySession
+
+    session_id = client.post(
+        "/api/chat", json={"message": "hello", "scenario": "cafe"}
+    ).json()["session_id"]
+    return db_session.get(RoleplaySession, session_id).user_id

@@ -42,12 +42,55 @@ logger = logging.getLogger("cody.auth")
 router = APIRouter(tags=["auth"])
 
 
+# 대소문자만 다른 기존 계정이 여럿일 때 비밀번호를 대조해 볼 최대 개수 (bcrypt 비용 제한)
+_MAX_LOGIN_CANDIDATES = 5
+
+# 없는 아이디로 로그인할 때 시간을 맞추기 위한 비교용 해시
+_DUMMY_HASH = hash_password("timing-equalizer-0")
+
+
 def _find_user(db: DbSession, username: str) -> User | None:
-    """정규화한 아이디로 사용자를 찾는다.
+    """정규화한 아이디로 사용자를 찾는다 (회원가입 중복 확인용).
 
     정규화 도입 전에 "Tester" 처럼 대문자로 가입한 계정도 함께 찾기 위해 lower() 로 비교한다.
     """
     return db.query(User).filter(func.lower(User.username) == username).first()
+
+
+def _authenticate(db: DbSession, entered: str, password: str) -> User | None:
+    """입력한 아이디·비밀번호에 맞는 계정을 돌려준다. 없으면 None.
+
+    정규화 도입 전에 가입한 계정 때문에 두 단계로 찾는다.
+      1) 입력한 그대로와 같은 아이디가 있으면 그 계정만 본다.
+         "Tester" 와 "tester" 가 따로 가입돼 있어도 각자 원래 아이디로 로그인되고,
+         전각 문자 아이디(ｔｅｓｔｅｒ)도 원래대로 입력하면 로그인된다.
+      2) 없으면 정규화한 아이디와 대소문자만 다른 계정들을 후보로 두고,
+         비밀번호가 맞는 계정으로 로그인한다. ("TESTER" 로 입력해도 tester 로 로그인)
+    """
+    entered = entered.strip()
+    if not entered:
+        return None
+
+    exact = db.query(User).filter(User.username == entered).first()
+    if exact is not None:
+        return exact if verify_password(password, exact.password_hash) else None
+
+    normalized = normalize_username(entered)
+    candidates = (
+        db.query(User)
+        .filter(func.lower(User.username) == normalized)
+        .order_by(User.id)
+        .limit(_MAX_LOGIN_CANDIDATES)
+        .all()
+    )
+    for user in candidates:
+        if verify_password(password, user.password_hash):
+            return user
+    if not candidates:
+        # 없는 아이디도 bcrypt 비교 한 번만큼 시간을 쓴다.
+        # 바로 돌려주면 응답 속도만으로 가입 여부를 알아낼 수 있다 (있는 아이디 ~600ms, 없는 아이디 ~5ms).
+        verify_password(password, _DUMMY_HASH)
+    return None
 
 
 def _signup_error(request: Request, code: str, username: str, status_code: int):
@@ -108,17 +151,16 @@ def login(
     password: str = Form(""),
     db: DbSession = Depends(get_db),
 ):
-    username = normalize_username(username)
-    user = _find_user(db, username) if username else None
+    user = _authenticate(db, username, password)
 
     # 없는 아이디와 틀린 비밀번호를 같은 응답으로 돌려준다.
     # 다르게 답하면 어떤 아이디가 가입돼 있는지 알아낼 수 있다.
-    if user is None or not verify_password(password, user.password_hash):
-        logger.info("%s user_exists=%s", Event.LOGIN_FAILED, user is not None)
+    if user is None:
+        logger.info("%s", Event.LOGIN_FAILED)
         return templates.TemplateResponse(
             request,
             "login.html",
-            {"error": "bad_credentials", "entered_username": username},
+            {"error": "bad_credentials", "entered_username": username.strip()},
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
