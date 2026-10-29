@@ -86,3 +86,13 @@ def test_page_redirects_browser_when_logged_out(client):
     )
     assert res.status_code == 303
     assert res.headers["location"] == "/login"
+
+
+# ---------- 배포 전에 열어 둔 화면 호환 ----------
+
+def test_legacy_by_scenario_endpoint_still_works(auth_client, db_session, user):
+    _add(db_session, user, "cafe", "q1", "fix")
+    res = auth_client.get("/api/me/corrections/by-scenario")
+    assert res.status_code == 200
+    assert res.json() == {"cafe": 1}
+    assert res.headers["deprecation"] == "true"

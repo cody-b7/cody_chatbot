@@ -21,6 +21,7 @@ class Event(StrEnum):
     REQUEST_RECEIVED = "request_received"
     REQUEST_DONE = "request_done"
     UNHANDLED_ERROR = "unhandled_error"
+    DEPRECATED_API_CALLED = "deprecated_api_called"  # 옛 화면 호환 경로 호출
 
     # cody.auth — 인증
     SIGNUP_SUCCESS = "signup_success"

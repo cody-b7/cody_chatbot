@@ -108,3 +108,19 @@ def test_times_are_sent_with_utc_offset(auth_client, db_session, user):
     row = auth_client.get("/api/me/sessions").json()[0]
     for key in ("created_at", "last_message_at"):
         assert row[key].endswith(("+00:00", "Z")), f"{key} 에 시간대가 없다: {row[key]}"
+
+
+def test_legacy_chats_session_filter_still_filters(auth_client, db_session, user):
+    """옛 기록 화면은 /chats?session_id= 로 펼친다. 필터가 빠지면 모든 세션의 기록이 섞인다."""
+    first = _seed(db_session, user, scenario="cafe", turns=2)
+    _seed(db_session, user, scenario="airport", turns=3)
+
+    res = auth_client.get(f"/api/me/chats?session_id={first.id}&limit=200")
+    assert res.status_code == 200
+    assert {row["session_id"] for row in res.json()} == {first.id}
+    assert len(res.json()) == 2
+    assert res.headers["deprecation"] == "true"
+
+
+def test_chats_without_session_filter_is_not_marked_deprecated(auth_client):
+    assert "deprecation" not in auth_client.get("/api/me/chats").headers

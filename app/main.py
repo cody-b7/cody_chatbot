@@ -25,6 +25,7 @@ from app.db import Base, checkpoint_wal, engine
 from app.log_events import Event
 from app.logging_config import request_id_var, setup_logging
 from app.routers import admin_logs, auth, chat, pages, records
+from app.templating import BUILD_ID
 
 setup_logging()
 logger = logging.getLogger("cody.request")
@@ -100,6 +101,8 @@ async def log_requests(request: Request, call_next):
         response = await call_next(request)
         status_code = response.status_code
         response.headers["X-Request-ID"] = request_id
+        # 화면이 자기 빌드와 비교해 새로고침 안내를 띄운다 (base.html)
+        response.headers["X-App-Build"] = BUILD_ID
         return response
     finally:
         # 처리 중 예외가 나도 request_done 은 남긴다 (status=500)

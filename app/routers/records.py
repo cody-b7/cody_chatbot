@@ -9,14 +9,22 @@
   /sessions/{id}     세션 하나의 대화 (기록 화면 펼치기, 이어하기)
   /corrections       교정 모음 (교정 화면)
   /stats             요약 통계 + 상황별 교정 횟수 (기록·교정 화면)
+
+호환용 (배포 전에 열어 둔 화면이 계속 부르는 옛 요청. 문서에 deprecated 로 표시)
+  /chats?session_id=           세션 하나의 로그만
+  /corrections/by-scenario     상황별 교정 횟수 (지금은 /stats 에 포함)
+호출되면 deprecated_api_called 로그를 남긴다. 한동안 이 로그가 없으면 지워도 된다.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DbSession
 
 from app.db import get_db
 from app.deps import get_current_user
+from app.log_events import Event
 from app.models import ChatLog, RoleplaySession, User
 from app.schemas import (
     ChatLogEntry,
@@ -27,6 +35,8 @@ from app.schemas import (
     SessionSummary,
 )
 
+logger = logging.getLogger("cody.request")
+
 router = APIRouter(
     prefix="/api/me",
     tags=["records"],
@@ -36,20 +46,24 @@ router = APIRouter(
 
 @router.get("/chats", response_model=list[ChatLogEntry], summary="내 대화 로그 (최신순)")
 def list_my_chat_logs(
+    response: Response,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    session_id: int | None = Query(
+        default=None,
+        deprecated=True,
+        description="옛 기록 화면 호환용. 새 화면은 /api/me/sessions/{session_id} 를 쓴다.",
+    ),
     db: DbSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """대화 로그 원본. AI 호출에 실패한 턴도 error_code 와 함께 나온다."""
-    return (
-        db.query(ChatLog)
-        .filter(ChatLog.user_id == user.id)
-        .order_by(ChatLog.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    q = db.query(ChatLog).filter(ChatLog.user_id == user.id)
+    if session_id is not None:
+        # 이 필터를 없애면 옛 화면의 요청이 모든 세션의 로그를 받아 기록이 섞인다
+        _mark_deprecated(response, "/api/me/chats?session_id", user)
+        q = q.filter(ChatLog.session_id == session_id)
+    return q.order_by(ChatLog.id.desc()).offset(offset).limit(limit).all()
 
 
 @router.get("/corrections", response_model=list[CorrectionItem], summary="내가 받은 교정")
@@ -155,7 +169,35 @@ def get_my_stats(
         .one()
     )
 
-    by_scenario = (
+    return LearningStats(
+        total_sessions=total_sessions,
+        total_turns=turns or 0,
+        total_corrections=corrections or 0,
+        error_count=errors or 0,
+        avg_latency_ms=round(avg_latency) if avg_latency is not None else None,
+        corrections_by_scenario=_corrections_by_scenario(db, user),
+    )
+
+
+@router.get(
+    "/corrections/by-scenario",
+    response_model=dict[str, int],
+    deprecated=True,
+    summary="상황별 교정 횟수 (옛 화면 호환용)",
+)
+def corrections_by_scenario_legacy(
+    response: Response,
+    db: DbSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """배포 전에 열어 둔 교정 화면이 부르는 옛 경로. 새 화면은 /api/me/stats 를 쓴다."""
+    _mark_deprecated(response, "/api/me/corrections/by-scenario", user)
+    return _corrections_by_scenario(db, user)
+
+
+def _corrections_by_scenario(db: DbSession, user: User) -> dict[str, int]:
+    """상황별 교정 횟수 (많은 순)."""
+    rows = (
         db.query(RoleplaySession.scenario, func.count(ChatLog.id))
         .join(ChatLog, ChatLog.session_id == RoleplaySession.id)
         .filter(ChatLog.user_id == user.id, ChatLog.correction.isnot(None))
@@ -163,15 +205,13 @@ def get_my_stats(
         .order_by(func.count(ChatLog.id).desc())
         .all()
     )
+    return {scenario: count for scenario, count in rows}
 
-    return LearningStats(
-        total_sessions=total_sessions,
-        total_turns=turns or 0,
-        total_corrections=corrections or 0,
-        error_count=errors or 0,
-        avg_latency_ms=round(avg_latency) if avg_latency is not None else None,
-        corrections_by_scenario={scenario: count for scenario, count in by_scenario},
-    )
+
+def _mark_deprecated(response: Response, api: str, user: User) -> None:
+    """옛 요청임을 응답 헤더와 로그로 남긴다. 로그가 끊기면 호환 경로를 지울 시점이다."""
+    response.headers["Deprecation"] = "true"
+    logger.info("%s api=%s user_id=%s", Event.DEPRECATED_API_CALLED, api, user.id)
 
 
 @router.get(

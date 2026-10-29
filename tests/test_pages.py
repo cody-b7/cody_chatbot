@@ -102,3 +102,13 @@ def test_request_log_has_user_id(db_session, caplog):
         assert f"user_id={member.id} " in received[-1]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_build_id_ties_page_and_api_together(auth_client):
+    """화면에 심은 빌드와 API 응답 헤더의 빌드가 같아야 새로고침 안내가 맞게 뜬다."""
+    from app.templating import BUILD_ID
+
+    page = auth_client.get("/history")
+    assert f'<meta name="app-build" content="{BUILD_ID}">' in page.text
+    assert f"/static/style.css?v={BUILD_ID}" in page.text  # 배포 후 옛 CSS 캐시 방지
+    assert auth_client.get("/api/me/stats").headers["x-app-build"] == BUILD_ID

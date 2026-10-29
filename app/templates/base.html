@@ -7,7 +7,40 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hahmlet:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ build_id }}">
+  <meta name="app-build" content="{{ build_id }}">
+  <script>
+    // 배포 전에 열어 둔 화면이면 새로고침을 안내한다.
+    // 서버는 모든 응답에 X-App-Build 를 붙인다. 화면에 심어 둔 빌드와 다르면
+    // 화면(JS)과 서버(API)의 버전이 어긋난 것이다.
+    (() => {
+      const pageBuild = document.querySelector('meta[name="app-build"]').content;
+      const nativeFetch = window.fetch.bind(window);
+      let shown = false;
+
+      function showUpdateNotice() {
+        if (shown) return;
+        shown = true;
+        const bar = document.createElement('div');
+        bar.className = 'update-notice';
+        bar.setAttribute('role', 'status');
+        bar.append('새 버전이 배포되었습니다. 새로고침하면 최신 화면으로 바뀝니다.');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = '새로고침';
+        btn.addEventListener('click', () => location.reload());
+        bar.append(btn);
+        document.body.prepend(bar);
+      }
+
+      window.fetch = async (...args) => {
+        const res = await nativeFetch(...args);
+        const serverBuild = res.headers.get('X-App-Build');
+        if (serverBuild && serverBuild !== pageBuild) showUpdateNotice();
+        return res;
+      };
+    })();
+  </script>
 </head>
 <body>
   {% set path = request.url.path %}
