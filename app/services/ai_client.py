@@ -109,9 +109,15 @@ def _split_reply(raw: str) -> tuple[str, str | None]:
 
     게이트웨이가 JSON 전용 모드(response_format)를 지원하지 않아서, 모델이 형식을
     어기면 원문 전체를 대사로 쓴다. 대화는 끊기지 않고 교정만 빠진다.
+    JSON 인데 reply 가 없거나 비었으면 빈 대사를 돌려줘 503 으로 처리한다 (JSON 원문이 대사로 새지 않게).
     """
     try:
         data = json.loads(raw.removeprefix("```json").removesuffix("```"))
-        return str(data["reply"]).strip(), data.get("correction") or None
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except ValueError:
         return raw, None
+    if not isinstance(data, dict):
+        return raw, None
+    reply, correction = data.get("reply"), data.get("correction")
+    reply = reply.strip() if isinstance(reply, str) else ""
+    correction = correction.strip() if isinstance(correction, str) else ""
+    return reply, correction or None

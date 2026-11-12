@@ -140,11 +140,29 @@ def test_failed_turn_is_left_out_of_context(auth_client, db_session, live_ai, ai
     ('{"reply": "Hi!", "correction": "고칠 것"}', ("Hi!", "고칠 것")),
     ('```json{"reply": "Hi!", "correction": null}```', ("Hi!", None)),
     ("Sure, what size?", ("Sure, what size?", None)),  # 형식을 어겨도 대화는 이어진다
+    ('{"reply": "Hi!", "correction": {"a": 1}}', ("Hi!", None)),  # 문자열이 아닌 교정은 버린다
+    ('{"reply": "Hi!", "correction": ["x"]}', ("Hi!", None)),
+    ('{"reply": "Hi!", "correction": "  "}', ("Hi!", None)),
+    ('{"correction": "x"}', ("", "x")),  # reply 가 없으면 빈 대사 (JSON 원문이 새지 않게)
+    ('{"reply": null}', ("", None)),
 ])
 def test_reply_parsing(raw, expected):
     assert ai_client._split_reply(raw) == expected
 
 
-def test_empty_reply_is_an_error(auth_client, live_ai, ai_outcomes):
-    ai_outcomes('{"reply": "", "correction": "x"}')
-    assert say(auth_client, start(auth_client)).status_code == 503
+@pytest.mark.parametrize("raw", [
+    '{"reply": "", "correction": "x"}', '{"correction": "x"}', '{"reply": null}', '{"reply": 3}',
+])
+def test_missing_or_empty_reply_returns_503(auth_client, live_ai, ai_outcomes, raw):
+    ai_outcomes(raw)
+    res = say(auth_client, start(auth_client))
+    assert res.status_code == 503
+    assert res.headers["retry-after"] and res.json()["error"] == "AI_ERROR"
+
+
+def test_non_string_correction_is_dropped(auth_client, db_session, live_ai, ai_outcomes):
+    ai_outcomes('{"reply": "Sure!", "correction": {"fix": "x"}}')
+    res = say(auth_client, start(auth_client))
+    assert res.status_code == 201
+    assert (res.json()["reply"], res.json()["correction"]) == ("Sure!", None)
+    assert db_session.query(ChatLog).one().correction is None
