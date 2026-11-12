@@ -46,7 +46,7 @@ flowchart LR
 
     F --> A
     A --> P
-    A -. 5xx / 연결 실패 .-> FB
+    A -. 429 / 5xx / 연결 실패 .-> FB
 
     F --> D
     F --> L
@@ -89,104 +89,97 @@ AI 호출은 코디세이 게이트웨이의 OpenAI 호환 엔드포인트를 �
 | Retry | SDK 자동 재시도는 끔(`max_retries=0`). 켜 두면 타임아웃도 한 번 더 기다려 최대 대기가 두 배가 됨 |
 | Fallback | 429·5xx·연결 실패일 때 보조 모델로 1회. 그것도 실패하면 503 + `Retry-After` |
 
-### 주요 컴포넌트
+### 폴더 구조 (계층)
 
-| 컴포넌트 | 역할 |
-|---|---|
-| `app/main.py` | 앱 생성, 세션·요청 로깅 미들웨어, 예외 처리 |
-| `app/routers/pages.py` | 화면 라우트 (연습·기록·교정·로그인·회원가입). 로그인 필요한 화면은 `get_current_user` 로 보호 |
-| `app/routers/auth.py` | 회원가입 / 로그인 / 로그아웃 (폼 POST) |
-| `app/routers/chat.py` | 챗 파이프라인 (`send_message`) |
-| `app/routers/records.py` | 사용자별 대화 로그·세션·교정·통계 조회 |
-| `app/routers/admin_logs.py` | 관리자 운영 로그 조회 API |
-| `app/services/ai.py` | AI 응답 생성 (`generate_ai_reply`), 타임아웃·폴백 처리 |
-| `app/services/context.py` | 프롬프트 메시지 구성 (`build_prompt_messages`) |
-| `app/security.py` | 아이디·비밀번호 정책, 비밀번호 해싱 |
-| `app/deps.py` | 사용자 및 관리자 인증 의존성 |
-| `app/logging_config.py` | 콘솔·파일 로그, request_id 부착, Rotation 설정 |
-| `app/log_events.py` | 로그 이벤트 이름 목록 |
-| `app/models.py` | DB 모델 |
-| `app/config.py` | 환경변수 기반 설정 |
+요청은 위에서 아래로만 흐릅니다. 라우트는 HTTP 입출력만, 서비스는 기능 흐름만, 리포지토리는 DB 접근만 맡습니다.
 
-**API 키는 서버에만 존재합니다.**
+```text
+app/
+├── main.py                 앱 생성, 미들웨어(request_id·요청 로그), 라우터 등록
+├── api/                    ① HTTP 계층
+│   ├── deps.py             로그인·관리자 확인 (Depends)
+│   ├── templating.py       Jinja2 템플릿, 빌드 번호
+│   └── routes/
+│       ├── pages.py        화면 (연습·기록·교정·로그인·회원가입)
+│       ├── auth.py         회원가입·로그인·로그아웃 (HTML 폼)
+│       ├── sessions.py     세션과 메시지 API
+│       ├── learning.py     교정 모음·통계 API
+│       └── admin.py        운영 로그 API (관리자)
+├── services/               ② 기능 흐름
+│   ├── chat.py             세션 확인 → 프롬프트 → AI 호출 → 기록 저장
+│   ├── ai_client.py        AI 게이트웨이 호출, 타임아웃·폴백
+│   ├── prompt.py           시스템 프롬프트와 최근 대화로 메시지 구성
+│   └── auth.py             회원가입 검증, 로그인 판정
+├── repositories/           ③ DB 접근 (모든 조회를 user_id 로 거름)
+│   ├── users.py
+│   └── sessions.py
+├── schemas/                요청·응답 계약 (입력 검증 포함)
+├── db/                     엔진·세션(WAL 설정), 테이블 모델
+├── core/                   설정, 로깅, 오류 형식, 계정 정책, 상황 정의
+├── templates/  static/     화면
+tests/                      영역별 테스트 (auth, sessions, learning, web, ops)
+scripts/                    백업·복구·관리자 지정·마이그레이션
+```
 
-브라우저는 서버의 API만 호출하며 AI API Key를 직접 사용하지 않습니다.
+**API 키는 서버에만 존재합니다.** 브라우저는 서버의 API만 호출하며 AI API Key를 직접 사용하지 않습니다.
 
 ---
 
 ## 3. API 명세
 
-### `POST /api/chat` — 대화
+화면을 제외한 API 는 자원(세션, 메시지, 교정, 통계) 중심으로 설계했습니다. 모든 API 는 로그인이 필요하고, 로그인한 사용자 자신의 데이터만 다룹니다. Swagger 문서는 `/docs` 에서 볼 수 있습니다.
 
-로그인이 필요합니다.
+| 메서드 | 경로 | 설명 | 성공 |
+|---|---|---|---|
+| POST | `/api/sessions` | 세션 시작 (상황 선택) | 201 |
+| GET | `/api/sessions` | 내 세션 목록 (턴 수, 교정 수, 마지막 대화 시각) | 200 |
+| GET | `/api/sessions/{id}` | 세션 하나의 대화 (기록 펼치기, 이어하기) | 200 |
+| POST | `/api/sessions/{id}/messages` | 말하기 → 상대역 응답과 교정 | 201 |
+| GET | `/api/corrections?scenario=` | 내가 받은 교정 (상황별 필터) | 200 |
+| GET | `/api/stats` | 학습 요약 (세션·턴·교정 수, 상황별 교정 수) | 200 |
+| GET | `/api/admin/logs?limit=` | 최근 운영 로그 (관리자) | 200 |
+| GET | `/health` | 서버 상태 | 200 |
+| POST | `/signup`, `/login`, `/logout` | HTML 폼 (성공 시 303 이동) | 303 |
 
-요청 예시:
+### 대화 예시
 
-```json
-{
-  "message": "I want coffee",
-  "scenario": "cafe",
-  "session_id": null
-}
+```http
+POST /api/sessions
+{ "scenario": "cafe" }
+
+→ 201 { "id": 12, "scenario": "cafe", "created_at": "2026-11-12T05:00:00Z",
+        "turn_count": 0, "correction_count": 0, "last_message_at": null }
 ```
 
-`session_id`가 `null`이면 새 롤플레이 세션을 생성합니다.
+```http
+POST /api/sessions/12/messages
+{ "message": "I want coffee" }
 
-응답으로 받은 `session_id`를 다음 요청에 전달하면 같은 세션의 대화 문맥을 이어갈 수 있습니다.
-
-응답 예시:
-
-```json
-{
-  "session_id": 12,
-  "chat_id": 87,
-  "saved": true,
-  "scenario": "cafe",
-  "reply": "Sure! What size would you like?",
-  "correction": "\"I want coffee\" 보다 \"Could I get a coffee?\" 가 자연스러워요."
-}
+→ 201 { "session_id": 12, "reply": "Sure! What size would you like?",
+        "correction": "\"I want coffee\" 보다 \"Could I get a coffee?\" 가 자연스러워요.",
+        "saved": true }
 ```
 
-대화 기록 저장에 실패해도 AI 응답은 그대로 돌려주며, 이때 `saved`는 `false`, `chat_id`는 `null`입니다.
-
-AI 호출이 시간 초과되면 HTTP `504`, 그 밖의 AI 장애는 HTTP `503`(`Retry-After` 헤더 포함)을 반환합니다.
-
-```json
-{
-  "error": "AI_TIMEOUT",
-  "message": "현재 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요."
-}
-```
-
-| 에러 코드 | 상황 |
-|---|---|
-| `AI_TIMEOUT` | AI 게이트웨이 응답 지연 |
-| `AI_ERROR` | AI 호출 실패 또는 빈 응답 |
-| `INVALID_INPUT` | 입력 검증 실패 (빈 메시지, 최대 길이 초과, 지원하지 않는 시나리오) |
-| `INTERNAL_ERROR` | 그 외 서버 내부 오류 |
+같은 세션으로 계속 보내면 최근 대화(`AI_MAX_CONTEXT_TURNS`, 기본 5턴)가 문맥으로 함께 전달됩니다. 대화 기록 저장에 실패해도 AI 응답은 돌려주며, 이때 `saved`는 `false`입니다.
 
 ### 오류 응답 형식과 상태코드
 
 모든 오류 응답은 같은 형식입니다. 화면은 `message`를 그대로 보여주고, `error`는 로그와 통계에서 원인을 구분할 때 씁니다.
 
 ```json
-{ "error": "INVALID_INPUT", "message": "메시지는 1000자를 넘을 수 없습니다." }
+{ "error": "AI_TIMEOUT", "message": "현재 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요." }
 ```
 
 | 상태코드 | `error` | 언제 |
 |---|---|---|
-| 200 | - | 성공 |
-| 303 | - | 화면 이동 (로그인·회원가입 성공, 로그아웃, 비로그인 브라우저의 화면 요청) |
-| 401 | `UNAUTHORIZED` | 로그인하지 않은 API 요청. 로그인 폼에서는 아이디·비밀번호 불일치 |
-| 403 | `FORBIDDEN` | 관리자 전용 API 를 일반 사용자가 요청, 남의 세션으로 대화하거나 조회 |
+| 401 | `UNAUTHORIZED` | 로그인하지 않음 (브라우저 화면 요청이면 `/login` 으로 303 이동) |
+| 403 | `FORBIDDEN` | 남의 세션에 접근, 일반 사용자가 관리자 API 요청 |
 | 404 | `NOT_FOUND` | 없는 세션 |
 | 409 | - | 회원가입: 이미 있는 아이디, 예약된 아이디 (가입 화면에 안내) |
-| 422 | `INVALID_INPUT` | 입력 검증 실패. 회원가입 폼에서는 아이디·비밀번호 정책 위반 |
+| 422 | `INVALID_INPUT` | 빈 메시지, 길이 초과, 지원하지 않는 상황. 회원가입 폼의 정책 위반 |
 | 500 | `INTERNAL_ERROR` | 예상하지 못한 서버 오류 |
 | 503 | `AI_ERROR` | AI 게이트웨이 장애, 빈 응답 (`Retry-After` 헤더 포함) |
 | 504 | `AI_TIMEOUT` | AI 응답 시간 초과 |
-
-회원가입·로그인은 HTML 폼이라, 실패하면 JSON 대신 해당 화면을 위 상태코드와 함께 다시 보여줍니다. 성공하면 303으로 이동합니다(새로고침해도 폼이 다시 전송되지 않게).
 
 ### 계정 정책
 
@@ -195,108 +188,14 @@ AI 호출이 시간 초과되면 HTTP `504`, 그 밖의 AI 장애는 HTTP `503`(
 | 아이디 | 영문 소문자·숫자·밑줄(`_`) 3~20자. 공백 제거, 유니코드 정규화(NFKC), 소문자 변환 후 저장·비교하므로 `Tester`, ` tester `, `ｔｅｓｔｅｒ`는 모두 같은 아이디 |
 | 예약 아이디 | `admin`, `administrator`, `root`, `system` 은 가입 불가 (관리자 권한은 `is_admin` 으로만 부여) |
 | 비밀번호 | 8자 이상, 72바이트 이하, 영문자와 숫자를 각각 1개 이상, 공백 불가, 아이디 포함 불가 |
-| 비교 방식 | bcrypt 는 72바이트까지만 보므로, 잘라서 비교하지 않고 72바이트를 넘는 입력은 거부 (앞부분만 같은 다른 비밀번호로 로그인되는 것을 막음) |
+| 비교 방식 | bcrypt 는 72바이트까지만 보므로, 잘라서 비교하지 않고 72바이트를 넘는 입력은 거부 |
 | 로그인 실패 | 없는 아이디와 틀린 비밀번호를 같은 문구와 비슷한 응답 시간으로 안내 (가입 여부를 알 수 없게) |
-| 기존 계정 | 규칙이 생기기 전에 가입한 계정은 원래 아이디 그대로 로그인됩니다. `Tester`와 `tester`가 따로 있어도 각자 로그인되고, 입력과 정확히 같은 아이디가 없을 때만 대소문자를 무시하고 찾습니다 |
+| 기존 계정 | 규칙이 생기기 전에 가입한 계정은 원래 아이디 그대로 로그인됩니다. 입력과 정확히 같은 아이디가 없을 때만 대소문자를 무시하고 찾습니다 |
 
-### 배포 전에 열어 둔 화면과의 호환
+### 배포 후 화면 갱신
 
-배포 직후에도 사용자의 브라우저에는 이전 버전 화면이 열려 있을 수 있습니다.
-
-- 이전 화면이 부르는 요청은 당분간 그대로 지원합니다: `GET /api/me/chats?session_id=`, `GET /api/me/corrections/by-scenario`. 응답에 `Deprecation: true` 헤더가 붙고 `deprecated_api_called` 로그가 남습니다. 이 로그가 한동안 없으면 제거합니다.
 - 모든 응답에 `X-App-Build`(배포된 커밋)를 붙입니다. 화면은 자기 빌드와 다르면 상단에 새로고침 안내를 띄웁니다.
 - CSS 주소에 `?v=<빌드>`를 붙여, 배포 후 브라우저가 이전 CSS 캐시를 쓰지 않게 합니다.
-
----
-
-### `GET /api/me/chats` — 내 대화 로그
-
-로그인이 필요합니다.
-
-```text
-/api/me/chats?limit=50&offset=0
-```
-
-현재 로그인한 사용자의 대화 로그를 최신순으로 반환합니다. 추적용이라 AI 호출에 실패한 턴도 `error_code`, `latency_ms`와 함께 나옵니다. 세션 하나의 대화만 필요하면 `/api/me/sessions/{session_id}`를 씁니다.
-
----
-
-### `GET /api/me/corrections` — 내 교정 기록
-
-교정이 존재하는 대화만 조회합니다.
-
-지원 파라미터:
-
-```text
-limit
-offset
-scenario
-```
-
----
-
-### `GET /api/me/sessions` — 내 세션 목록
-
-현재 사용자의 롤플레이 세션 목록을 반환합니다.
-
-각 세션에 대해 다음 정보를 확인할 수 있습니다.
-
-- 대화 턴 수
-- 교정 수
-- 마지막 대화 시각
-
----
-
-### `GET /api/me/sessions/{session_id}` — 세션 상세 조회
-
-선택한 세션의 대화 기록 전체를 반환합니다. 기록 화면의 펼치기와 이어하기가 함께 씁니다.
-
-다른 사용자의 세션을 요청하면 `403 Forbidden`, 없는 세션이면 `404 Not Found`를 반환합니다. 로그인은 했지만 권한이 없는 경우라 인증 실패(401)와 구분합니다.
-
----
-
-### `GET /api/me/stats` — 학습 통계
-
-현재 사용자의 학습 통계를 반환합니다.
-
-- 총 세션 수
-- 총 대화 턴 수
-- 총 교정 수
-- 오류 수
-- 평균 AI 응답 시간 (운영 지표. 학습자 화면에는 표시하지 않음)
-- 상황별 교정 횟수 (`corrections_by_scenario`, 교정 화면의 필터에 사용)
-
----
-
-### `GET /api/admin/logs` — 관리자 운영 로그
-
-관리자 전용 API입니다.
-
-최근 운영 로그를 지정한 개수만큼 조회합니다.
-
-```text
-/api/admin/logs?limit=100
-```
-
-접근 권한:
-
-```text
-비로그인 사용자 → 401
-일반 사용자     → 403
-관리자          → 200
-```
-
-관리자 여부는 `users` 테이블의 `is_admin` 필드를 기준으로 판단합니다.
-
----
-
-### `GET /health` — 상태 확인
-
-```json
-{
-  "status": "ok"
-}
-```
 
 ---
 
@@ -408,7 +307,8 @@ sqlite3 data/chatbot.db < scripts/check_logs.sql
 웹에서는 다음 API로 현재 로그인 사용자의 기록을 확인할 수 있습니다.
 
 ```text
-GET /api/me/chats
+GET /api/sessions          세션 목록
+GET /api/sessions/{id}     세션 하나의 대화
 ```
 
 ---
@@ -528,16 +428,16 @@ ruff check --fix .
 ### 형식
 
 ```text
-INFO  2026-10-29T14:02:11+09:00 cody.request request_id=3f9a1c2b7d10 request_received user_id=4 method=POST path=/api/chat
+INFO  2026-10-29T14:02:11+09:00 cody.request request_id=3f9a1c2b7d10 request_received user_id=4 method=POST path=/api/sessions/12/messages
 INFO  2026-10-29T14:02:11+09:00 cody.ai      request_id=3f9a1c2b7d10 ai_call_start model=gemini-3-flash turns=7 mock=False
 INFO  2026-10-29T14:02:13+09:00 cody.ai      request_id=3f9a1c2b7d10 ai_call_success latency_ms=1840
 INFO  2026-10-29T14:02:13+09:00 cody.db      request_id=3f9a1c2b7d10 db_save_success user_id=4 chat_id=87
-INFO  2026-10-29T14:02:13+09:00 cody.request request_id=3f9a1c2b7d10 request_done path=/api/chat status=200 took_ms=1863
+INFO  2026-10-29T14:02:13+09:00 cody.request request_id=3f9a1c2b7d10 request_done path=/api/sessions/12/messages status=201 took_ms=1863
 ```
 
 - **request_id**: 요청마다 하나씩 만들어 그 요청 안의 모든 로그 줄에 붙입니다. 응답 헤더 `X-Request-ID`로도 내려주므로, 오류가 난 요청의 id 로 `grep` 하면 요청 → AI 호출 → DB 저장 흐름을 한 번에 볼 수 있습니다.
 - **로거 이름으로 분야 구분**: `cody.request`(요청), `cody.auth`(인증), `cody.ai`(AI 호출), `cody.db`(대화 저장). 예: `grep " cody.ai " logs/app.log`
-- **이벤트 이름**은 `app/log_events.py` 한 곳에 모아 둡니다.
+- **이벤트 이름**은 `app/core/logging.py` 의 `Event` 에 모아 둡니다.
 - **시각**에는 시간대를 붙입니다(`+09:00`). 서버 시계는 UTC 라서 시간대 없이 찍으면 한국 시간 오후 4시 요청이 `07:00`으로 보여 찾기 어렵습니다. `.env`의 `LOG_UTC_OFFSET_HOURS`로 바꿀 수 있습니다.
 
 ### 이벤트
@@ -545,7 +445,7 @@ INFO  2026-10-29T14:02:13+09:00 cody.request request_id=3f9a1c2b7d10 request_don
 | 로거 | 이벤트 | 레벨 |
 |---|---|---|
 | `cody.app` | `app_started`, `app_stopped` | INFO |
-| `cody.request` | `request_received`, `request_done`, `deprecated_api_called` | INFO |
+| `cody.request` | `request_received`, `request_done` | INFO |
 | `cody.request` | `unhandled_error` (스택트레이스 포함) | ERROR |
 | `cody.auth` | `signup_success`, `signup_failed`, `login_success`, `login_failed`, `logout`, `stale_session_cleared` | INFO |
 | `cody.ai` | `ai_call_start`, `ai_call_success`, `ai_fallback_start` | INFO |
