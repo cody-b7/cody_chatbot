@@ -166,3 +166,24 @@ def test_non_string_correction_is_dropped(auth_client, db_session, live_ai, ai_o
     assert res.status_code == 201
     assert (res.json()["reply"], res.json()["correction"]) == ("Sure!", None)
     assert db_session.query(ChatLog).one().correction is None
+
+
+def test_out_of_range_session_id_is_422_not_500(auth_client):
+    """SQLite 정수 범위를 넘는 번호가 DB 까지 가면 OverflowError 로 500 이 났다."""
+    assert auth_client.get(f"/api/sessions/{10**30}").status_code == 422
+    assert say(auth_client, 10**30).status_code == 422
+
+
+@pytest.mark.parametrize("body, message", [
+    ({}, "'message' 값을 확인해 주세요."),
+    ({"message": 123}, "'message' 값을 확인해 주세요."),
+])
+def test_malformed_request_gets_korean_message(auth_client, body, message):
+    res = auth_client.post(f"/api/sessions/{start(auth_client)}/messages", json=body)
+    assert res.json() == {"error": "INVALID_INPUT", "message": message}
+
+
+def test_broken_json_gets_korean_message(auth_client):
+    res = auth_client.post(f"/api/sessions/{start(auth_client)}/messages", content="{oops",
+                           headers={"Content-Type": "application/json"})
+    assert res.json()["message"] == "요청 형식을 확인해 주세요."

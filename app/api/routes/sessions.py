@@ -6,7 +6,9 @@
   POST /api/sessions/{id}/messages      말하기 → 상대역 응답과 교정
 """
 
-from fastapi import APIRouter, Depends, Query
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -28,6 +30,8 @@ router = APIRouter(
     tags=["sessions"],
     responses={401: {"model": ErrorResponse, "description": "로그인하지 않음"}},
 )
+# SQLite 정수 범위를 넘는 번호는 DB 까지 가기 전에 422 로 막는다 (넘기면 OverflowError 로 500)
+SessionId = Annotated[int, Path(ge=1, le=2**63 - 1)]
 _OWNED = {
     403: {"model": ErrorResponse, "description": "남의 세션"},
     404: {"model": ErrorResponse, "description": "없는 세션"},
@@ -58,7 +62,7 @@ def list_sessions(
 
 @router.get("/{session_id}", response_model=SessionDetail, responses=_OWNED, summary="세션 대화")
 def get_session(
-    session_id: int,
+    session_id: SessionId,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -82,7 +86,7 @@ def get_session(
     },
 )
 def send_message(
-    session_id: int,
+    session_id: SessionId,
     payload: MessageCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),

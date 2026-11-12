@@ -263,8 +263,8 @@
   // ---------- 이어하기: /history 에서 ?session=<id> 로 들어온 경우 ----------
 
   async function resume(id) {
-    const res = await fetch('/api/sessions/' + encodeURIComponent(id));
-    if (!res.ok) {
+    const res = await fetch('/api/sessions/' + encodeURIComponent(id)).catch(() => null);
+    if (!res?.ok) {
       showEmpty();
       addAside('이어서 할 대화를 찾지 못해 새 대화로 시작합니다.');
       return;

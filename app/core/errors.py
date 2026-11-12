@@ -42,15 +42,23 @@ async def _app_error(request: Request, exc: AppError):
     return _respond(request, exc.status_code, exc.code, exc.message, exc.headers)
 
 
+_HTTP_MESSAGES = {404: "요청한 주소를 찾을 수 없습니다.", 405: "허용되지 않는 요청 방식입니다."}
+
+
 async def _http_error(request: Request, exc: StarletteHTTPException):
     # 프레임워크가 내는 404(없는 경로)·405(잘못된 메서드)
-    return _respond(request, exc.status_code, f"HTTP_{exc.status_code}", str(exc.detail))
+    message = _HTTP_MESSAGES.get(exc.status_code, str(exc.detail))
+    return _respond(request, exc.status_code, f"HTTP_{exc.status_code}", message)
 
 
 async def _validation_error(request: Request, exc: RequestValidationError):
-    errors = exc.errors()
-    message = str(errors[0]["msg"]) if errors else "보낸 내용을 확인해 주세요."
-    return _respond(request, 422, "INVALID_INPUT", message.removeprefix("Value error, "))
+    err = (exc.errors() or [{}])[0]
+    if err.get("type") == "value_error":  # 스키마 검증기가 직접 쓴 한국어 안내
+        message = str(err["msg"]).removeprefix("Value error, ")
+    else:  # 필드 누락, 타입 오류, JSON 형식 오류 등 프레임워크의 영어 문구는 감춘다
+        field = next((p for p in err.get("loc", ())[1:] if isinstance(p, str)), None)
+        message = f"'{field}' 값을 확인해 주세요." if field else "요청 형식을 확인해 주세요."
+    return _respond(request, 422, "INVALID_INPUT", message)
 
 
 async def _unhandled_error(request: Request, exc: Exception):

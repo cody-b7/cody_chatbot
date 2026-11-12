@@ -38,7 +38,9 @@ def test_every_response_carries_request_id_and_build(client):
 
 
 def test_unknown_path_uses_common_error_format(client):
-    assert client.get("/api/nothing").json()["error"] == "HTTP_404"
+    assert client.get("/api/nothing").json() == {
+        "error": "HTTP_404", "message": "요청한 주소를 찾을 수 없습니다.",
+    }
 
 
 def test_api_docs_list_only_apis(client):

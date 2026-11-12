@@ -29,7 +29,9 @@ How to correct:
   try it in English. Put the Korean hint in "correction".
 
 Respond with JSON only, no markdown fence:
-{{"reply": "<your in-character line>", "correction": "<한국어 교정 or null>"}}"""
+{{"reply": "<your in-character line>", "correction": "<한국어 교정>"}}
+When there is nothing to correct, use JSON null (not the string "null"):
+{{"reply": "<your in-character line>", "correction": null}}"""
 
 
 def build_prompt_messages(

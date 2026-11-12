@@ -5,8 +5,6 @@
 설정 누락을 그대로 잡아준다.
 """
 
-from functools import lru_cache
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,7 +17,7 @@ class Settings(BaseSettings):
     AI_API_KEY: str
     AI_BASE_URL: str          # 콘솔 문서 탭 주소, ".../v1" 까지만
     AI_MODEL: str                 # 주 모델
-    AI_FALLBACK_MODEL: str = ""   # 주 모델이 5xx/연결 실패일 때만 사용 (빈 값이면 비활성)
+    AI_FALLBACK_MODEL: str = ""   # 주 모델이 429·5xx·연결 실패일 때만 사용 (빈 값이면 비활성)
     AI_TIMEOUT: float = 30.0
     AI_TEMPERATURE: float = 0.7
     AI_MAX_CONTEXT_TURNS: int = 5
@@ -37,9 +35,4 @@ class Settings(BaseSettings):
     MAX_MESSAGE_LENGTH: int = 1000
 
 
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
-
-
-settings = get_settings()
+settings = Settings()
