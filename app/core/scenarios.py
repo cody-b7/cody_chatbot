@@ -106,10 +106,4 @@ SCENARIOS: tuple[Scenario, ...] = (
 )
 
 BY_KEY: dict[str, Scenario] = {s.key: s for s in SCENARIOS}
-KEYS: tuple[str, ...] = tuple(s.key for s in SCENARIOS)
-DEFAULT = BY_KEY["smalltalk"]
-
-
-def get(key: str) -> Scenario:
-    """모르는 키가 와도 대화가 끊기지 않도록 기본 상황으로 떨어진다."""
-    return BY_KEY.get(key, DEFAULT)
+LABELS: dict[str, str] = {s.key: s.label for s in SCENARIOS}  # 화면에 보여줄 한국어 이름
