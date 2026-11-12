@@ -20,10 +20,10 @@
 
 | 대상 | 위치 | 설명 |
 |---|---|---|
-| DB 스키마 | `app/models.py` | `users`, `roleplay_sessions`, `chat_logs` |
-| 요청·응답 스키마 | `app/schemas.py` | 챗 API 요청·응답 및 입력 검증 |
-| 사용자 인증 | `app/deps.py`의 `get_current_user` | 세션의 `user_id`를 기준으로 로그인 사용자 확인 |
-| 관리자 인증 | `app/deps.py`의 `get_admin_user` | `users.is_admin` 값을 기준으로 관리자 확인 |
+| DB 스키마 | `app/db/models.py` | `users`, `roleplay_sessions`, `chat_logs` |
+| 요청·응답 스키마 | `app/schemas/` | API 요청·응답 및 입력 검증 |
+| 사용자 인증 | `app/api/deps.py`의 `get_current_user` | 세션의 `user_id`를 기준으로 로그인 사용자 확인 |
+| 관리자 인증 | `app/api/deps.py`의 `get_admin_user` | `users.is_admin` 값을 기준으로 관리자 확인 |
 | AI 오류 코드 | `AI_TIMEOUT`, `AI_ERROR`, `INTERNAL_ERROR` | AI 실패 응답에 사용 |
 | DB | SQLite | 기본 경로 `data/chatbot.db` |
 | 운영 서버 | Azure Ubuntu VM | Nginx + Uvicorn + systemd 구성 |
@@ -325,12 +325,12 @@ Fallback : gpt-5-mini
 주요 API:
 
 ```text
-GET /api/me/chats
-GET /api/me/corrections
-(상황별 교정 횟수는 /api/me/stats 의 corrections_by_scenario 로 통합)
-GET /api/me/sessions
-GET /api/me/sessions/{session_id}
-GET /api/me/stats
+POST /api/sessions
+GET  /api/sessions
+GET  /api/sessions/{session_id}
+POST /api/sessions/{session_id}/messages
+GET  /api/corrections
+GET  /api/stats
 ```
 
 모든 사용자 기록은 로그인한 사용자의 ID를 기준으로 제한한다.

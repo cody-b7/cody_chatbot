@@ -1,8 +1,4 @@
-"""테스트 픽스처.
-
-DB는 메모리 SQLite로 갈아끼우고, AI 호출은 항상 mock 으로 고정한다.
-(테스트가 실수로 실제 게이트웨이를 부르면 팀 토큰 한도가 깎인다)
-"""
+"""테스트 픽스처. DB 는 메모리 SQLite, AI 는 항상 mock (실제 게이트웨이를 부르면 팀 토큰이 깎인다)."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,56 +6,73 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.config import settings
-from app.db import Base, get_db
-from app.deps import get_current_user
+from app.api.deps import get_current_user
+from app.core.config import settings
+from app.db.models import Base, User
+from app.db.session import get_db
 from app.main import app
-from app.models import User
+from app.services import ai_client
 
 
 @pytest.fixture(autouse=True)
-def fixed_settings(monkeypatch):
-    """테스트는 항상 AI mock 환경에서 실행한다."""
+def mock_ai(monkeypatch):
     monkeypatch.setattr(settings, "AI_MOCK", True)
 
 
 @pytest.fixture
 def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
-    try:
-        yield session
-    finally:
-        session.close()
-        engine.dispose()
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.close()
+    engine.dispose()
 
 
 @pytest.fixture
 def user(db_session) -> User:
-    u = User(username="tester", password_hash="x")
-    db_session.add(u)
-    db_session.commit()
-    db_session.refresh(u)
-    return u
+    return make_user(db_session, "tester")
 
 
 @pytest.fixture
 def client(db_session):
-    """비로그인 클라이언트."""
+    """비로그인 클라이언트. 로그인이 필요하면 /login 으로 실제 로그인한다."""
     app.dependency_overrides[get_db] = lambda: db_session
     yield TestClient(app)
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def auth_client(db_session, user):
-    """로그인된 클라이언트."""
-    app.dependency_overrides[get_db] = lambda: db_session
+def auth_client(client, user):
+    """tester 로 로그인된 클라이언트."""
     app.dependency_overrides[get_current_user] = lambda: user
-    yield TestClient(app)
-    app.dependency_overrides.clear()
+    return client
+
+
+@pytest.fixture
+def ai_outcomes(monkeypatch):
+    """AI 호출 결과를 순서대로 지정한다. 예외를 넣으면 그 예외가 난다. 호출된 모델 목록을 돌려준다."""
+    calls: list[str] = []
+
+    def set_outcomes(*outcomes):
+        it = iter(outcomes)
+
+        def fake(model, messages):
+            calls.append(model)
+            outcome = next(it)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(ai_client, "_complete", fake)
+        return calls
+
+    return set_outcomes
+
+
+def make_user(db, username, password_hash="x", is_admin=False) -> User:
+    u = User(username=username, password_hash=password_hash, is_admin=is_admin)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u

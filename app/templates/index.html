@@ -169,49 +169,55 @@
 
   // ---------- 보내기 ----------
 
+  // 응답을 { ok, status, data } 로 돌려준다. 네트워크가 끊기면 status 0.
+  async function postJSON(url, body) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
+    } catch {
+      return { ok: false, status: 0, data: {} };
+    }
+  }
+
+  // 첫 마디를 보낼 때 세션을 연다. 이후에는 같은 세션으로 보낸다.
+  async function talk(text) {
+    if (!sessionId) {
+      const created = await postJSON('/api/sessions', { scenario: scene.key });
+      if (!created.ok) return created;
+      sessionId = created.data.id;
+    }
+    return postJSON(`/api/sessions/${sessionId}/messages`, { message: text });
+  }
+
   async function send(text, turn) {
     busy = true;
     sendBtn.disabled = true;
     sendBtn.textContent = '기다리는 중';
     const typing = showTyping();
 
-    let res, data;
-    try {
-      res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, scenario: scene.key, session_id: sessionId }),
-      });
-      data = await res.json().catch(() => ({}));
-    } catch {
-      res = null;
-    }
+    const result = await talk(text);
 
     typing.remove();
     busy = false;
     sendBtn.disabled = false;
     sendBtn.textContent = '보내기';
 
-    if (res && res.status === 401) {
-      location.href = '/login';
-      return;
-    }
+    if (result.status === 401) { location.href = '/login'; return; }
+    if (!result.ok) { showTrouble(turn, text, problemMessage(result)); return; }
 
-    if (!res || !res.ok) {
-      showTrouble(turn, text, problemMessage(res, data));
-      return;
-    }
-
-    sessionId = data.session_id;
     turn.classList.remove('failed');
-    if (data.correction) addCorrection(turn, data.correction);
-    addTheirs(data.reply);
+    if (result.data.correction) addCorrection(turn, result.data.correction);
+    addTheirs(result.data.reply);
   }
 
   // 서버의 오류 응답은 모두 { error, message } 형식이다 (422·503·504 등)
-  function problemMessage(res, data) {
-    if (!res) return '인터넷 연결을 확인한 뒤 다시 보내 주세요.';
-    return data?.message || '답을 받지 못했습니다. 잠시 뒤 다시 보내 주세요.';
+  function problemMessage({ status, data }) {
+    if (status === 0) return '인터넷 연결을 확인한 뒤 다시 보내 주세요.';
+    return data.message || '답을 받지 못했습니다. 잠시 뒤 다시 보내 주세요.';
   }
 
   function showTrouble(turn, text, message) {
@@ -257,8 +263,8 @@
   // ---------- 이어하기: /history 에서 ?session=<id> 로 들어온 경우 ----------
 
   async function resume(id) {
-    const res = await fetch('/api/me/sessions/' + encodeURIComponent(id));
-    if (!res.ok) {
+    const res = await fetch('/api/sessions/' + encodeURIComponent(id)).catch(() => null);
+    if (!res?.ok) {
       showEmpty();
       addAside('이어서 할 대화를 찾지 못해 새 대화로 시작합니다.');
       return;
