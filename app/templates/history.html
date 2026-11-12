@@ -42,7 +42,7 @@
   async function load() {
     let stats, sessions;
     try {
-      [stats, sessions] = await Promise.all([getJSON('/api/me/stats'), getJSON('/api/me/sessions')]);
+      [stats, sessions] = await Promise.all([getJSON('/api/stats'), getJSON('/api/sessions')]);
     } catch {
       document.getElementById('sessions').innerHTML =
         '<tr><td colspan="6" class="empty-row">기록을 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</td></tr>';
@@ -95,7 +95,7 @@
     const cell = panel.firstElementChild;
     let detail;
     try {
-      detail = await getJSON('/api/me/sessions/' + encodeURIComponent(id));
+      detail = await getJSON('/api/sessions/' + encodeURIComponent(id));
     } catch {
       cell.textContent = '대화를 불러오지 못했습니다. 다시 눌러 보세요.';
       panel.hidden = true;

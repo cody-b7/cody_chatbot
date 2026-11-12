@@ -2,8 +2,8 @@
 
 import sys
 
-from app.db import SessionLocal
-from app.models import User
+from app.db.models import User
+from app.db.session import SessionLocal
 
 
 def set_admin(username: str, is_admin: bool) -> None:
